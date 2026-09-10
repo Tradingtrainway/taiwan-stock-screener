@@ -2,3 +2,4 @@ streamlit
 finmind
 pandas
 numpy
+requests
