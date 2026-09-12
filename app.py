@@ -254,7 +254,7 @@ def draw_kline(df_stock, stock_id):
 
 
 # ==========================================
-# TAB 2: 處置股追蹤 (直接串接證交所 TWSE 官方開放資料)
+# TAB 2: 處置股追蹤 (偽裝 Browser Header + 雙 API 備援)
 # ==========================================
 with tab2:
   st.title("🚨 處置股精準追蹤戰情室 (TWSE 官方數據)")
@@ -268,34 +268,96 @@ with tab2:
 
   @st.cache_data(ttl=1800)
   def fetch_twse_disposition():
+    # 偽裝一般瀏覽器 User-Agent 繞過雲端防火牆阻擋
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.twse.com.tw/",
+    }
+
+    # 主路徑與備用路徑
+    urls = [
+        "https://openapi.twse.com.tw/v1/announcement/notice3",
+        "https://openapi.twse.com.tw/v1/data/disposition_info",
+    ]
+
+    data = None
+    for url in urls:
+      try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+          res_json = res.json()
+          if isinstance(res_json, list) and len(res_json) > 0:
+            data = res_json
+            break
+      except Exception:
+        continue
+
+    if not data:
+      return pd.DataFrame(), pd.DataFrame()
+
     try:
-      # TWSE 證交所公開資訊 API: 處置股票公告
-      url = "https://openapi.twse.com.tw/v1/announcement/notice3"
-      res = requests.get(url, timeout=10)
-
-      if res.status_code != 200:
-        return pd.DataFrame(), pd.DataFrame()
-
-      data = res.json()
-      if not data:
-        return pd.DataFrame(), pd.DataFrame()
-
       df = pd.DataFrame(data)
 
-      # 證交所 API 欄位通常為: Code (代號), Name (名稱), StartDate (開始日), EndDate (結束日)
-      # 自動調整欄位名稱大小寫
+      # 兼容不同的 API 回傳欄位命名
       code_col = next(
-          (c for c in ["Code", "code", "StockNo"] if c in df.columns), None
+          (
+              c
+              for c in [
+                  "Code",
+                  "code",
+                  "StockNo",
+                  "SecuritiesCode",
+                  "證券代號",
+              ]
+              if c in df.columns
+          ),
+          None,
       )
       name_col = next(
-          (c for c in ["Name", "name", "StockName"] if c in df.columns), None
+          (
+              c
+              for c in [
+                  "Name",
+                  "name",
+                  "StockName",
+                  "SecuritiesName",
+                  "證券名稱",
+              ]
+              if c in df.columns
+          ),
+          None,
       )
       start_col = next(
-          (c for c in ["StartDate", "startDate", "Start"] if c in df.columns),
+          (
+              c
+              for c in [
+                  "StartDate",
+                  "startDate",
+                  "Start",
+                  "处置起始日期",
+                  "處置開始日期",
+              ]
+              if c in df.columns
+          ),
           None,
       )
       end_col = next(
-          (c for c in ["EndDate", "endDate", "End"] if c in df.columns), None
+          (
+              c
+              for c in [
+                  "EndDate",
+                  "endDate",
+                  "End",
+                  "处置结束日期",
+                  "處置結束日期",
+              ]
+              if c in df.columns
+          ),
+          None,
       )
 
       if not code_col:
@@ -320,17 +382,17 @@ with tab2:
           return pd.to_datetime(d_str)
         return None
 
-      if start_col:
-        df["start_dt"] = df[start_col].apply(parse_twse_date)
-      else:
-        df["start_dt"] = pd.to_datetime(today)
+      df["start_dt"] = (
+          df[start_col].apply(parse_twse_date)
+          if start_col
+          else pd.to_datetime(today)
+      )
+      df["end_dt"] = (
+          df[end_col].apply(parse_twse_date)
+          if end_col
+          else pd.to_datetime(today)
+      )
 
-      if end_col:
-        df["end_dt"] = df[end_col].apply(parse_twse_date)
-      else:
-        df["end_dt"] = pd.to_datetime(today)
-
-      # 拿最新的處置紀錄
       df_latest = (
           df.sort_values("start_dt").groupby("stock_id").last().reset_index()
       )
@@ -348,7 +410,7 @@ with tab2:
 
       return df_day2, df_exiting
     except Exception as e:
-      st.error(f"證交所 API 讀取失敗: {e}")
+      st.error(f"處置股資料解析出錯: {e}")
       return pd.DataFrame(), pd.DataFrame()
 
   with st.spinner("⏳ 正在直接連線證交所(TWSE)讀取今日處置公告與 K 線..."):
