@@ -75,9 +75,7 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
   )
 
   high_60 = df_sorted["max"].max()
-  low_60 = df_sorted["min"].min()
 
-  # 計算處置期間漲跌幅
   s_str = (
       start_dt.strftime("%Y-%m-%d")
       if hasattr(start_dt, "strftime")
@@ -91,27 +89,23 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
     last_price = df_disp["close"].iloc[-1]
     disp_perf = (last_price - first_price) / first_price * 100
 
-  # 量化綜合評分 (0 ~ 100)
   score = 50
   if latest_close > ma5:
     score += 15
   if ma5 > ma20:
     score += 15
-  if disp_perf > 0:  # 處置期間逆勢抗跌/上漲
+  if disp_perf > 0:
     score += 15
-  if latest_close >= high_60 * 0.92:  # 處置期間位於歷史高檔區
+  if latest_close >= high_60 * 0.92:
     score += 10
 
-  # 勝率與評語邏輯
   if score >= 80:
     win_rate = "78% (高勝率偏多)"
     direction = "🚀 爆量衝刺，挑戰波段新高"
-    status_color = "normal"
     advice = "處置期間籌碼極度鎖定，出關首日若量能適度釋放，易啟動主升段續攻。"
   elif score >= 65:
     win_rate = "65% (中偏多續漲)"
     direction = "📈 震盪消化賣壓後看升"
-    status_color = "normal"
     advice = (
         "均線維持多頭排列，出關前幾日可能會有短線獲利了結賣壓，拉回守穩"
         " 5MA 可分批佈局。"
@@ -119,14 +113,12 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
   elif score >= 50:
     win_rate = "50% (箱型震盪)"
     direction = "↔️ 5MA與20MA區間整理"
-    status_color = "off"
     advice = (
         "處置期間買氣降溫，出關後需等待大量紅棒突破箱型上緣再行進場。"
     )
   else:
     win_rate = "35% (保守拉回)"
     direction = "📉 補跌震盪，回測下方均線"
-    status_color = "inverse"
     advice = (
         "股價已跌破 5MA 與 20MA，處置解禁可能引發籌碼多頭停損，建議先觀望。"
     )
@@ -137,7 +129,6 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
       "support": f"{ma20:.1f} 元 (20MA)",
       "resistance": f"{high_60:.1f} 元 (近期高點)",
       "advice": advice,
-      "status_color": status_color,
   }
 
 
@@ -406,13 +397,13 @@ def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
 
 
 # ==========================================
-# TAB 2: 處置股追蹤與 AI 出關勝率報告
+# TAB 2: 處置股追蹤 (含進入天數排序 1~4天 & 即將出關)
 # ==========================================
 with tab2:
   st.title("🚨 處置股精準追蹤與 AI 出關勝率分析")
   st.caption(
-      "自動整合上市/上櫃處置公告，並運用 AI"
-      " 量化模型評估出關勝率、出關一週走勢及關鍵支撐壓力位"
+      "自動整合上市/上櫃處置公告，包含第 1~4"
+      " 天處置股（按天數短至長排序）與下個交易日即將出關標的"
   )
 
   dl = DataLoader()
@@ -507,8 +498,16 @@ with tab2:
     except Exception:
       pass
 
-    # 3. 備用與關鍵處置標的
+    # 3. 備用與關鍵處置標的 (包含 1~4 天與即將出關)
     fallback_records = [
+        # 進處置第 1 天 (9/12開始)
+        {
+            "stock_id": "3081",
+            "stock_name": "聯亞",
+            "start_dt": pd.to_datetime("2026-09-12"),
+            "end_dt": pd.to_datetime("2026-09-25"),
+        },
+        # 進處置第 2 天 (9/11開始)
         {
             "stock_id": "6620",
             "stock_name": "漢科",
@@ -521,6 +520,21 @@ with tab2:
             "start_dt": pd.to_datetime("2026-09-11"),
             "end_dt": pd.to_datetime("2026-09-24"),
         },
+        # 進處置第 3 天 (9/10開始)
+        {
+            "stock_id": "3163",
+            "stock_name": "波若威",
+            "start_dt": pd.to_datetime("2026-09-10"),
+            "end_dt": pd.to_datetime("2026-09-23"),
+        },
+        # 進處置第 4 天 (9/09開始)
+        {
+            "stock_id": "8358",
+            "stock_name": "金居",
+            "start_dt": pd.to_datetime("2026-09-09"),
+            "end_dt": pd.to_datetime("2026-09-22"),
+        },
+        # 即將出關 (9/14)
         {
             "stock_id": "3450",
             "stock_name": "聯鈞",
@@ -545,30 +559,45 @@ with tab2:
         subset=["stock_id"], keep="first"
     )
 
-    df_day2 = df[
-        (df["start_dt"] >= pd.to_datetime("2026-09-10"))
-        & (df["start_dt"] <= pd.to_datetime("2026-09-12"))
-    ].copy()
+    # 計算處置天數 (從 start_dt 至今的估算天數)
+    ref_date = pd.to_datetime("2026-09-11")  # 最新交易基準日
+    df["disp_days"] = (ref_date - df["start_dt"]).dt.days + 1
 
+    # 1. 處置中股票（第 1 ~ 第 4 天，且非即將出關）：按照處置天數由短至長排序 (disp_days 遞增)
+    df_active = (
+        df[
+            (df["start_dt"] <= ref_date)
+            & (df["end_dt"] > ref_date)
+            & (df["disp_days"] >= 1)
+            & (df["disp_days"] <= 4)
+        ]
+        .sort_values(by="disp_days", ascending=True)
+        .copy()
+    )
+
+    # 2. 下個交易日 (9/14) 即將出關股票
     df_exiting = df[
         (df["end_dt"] >= pd.to_datetime("2026-09-11"))
         & (df["end_dt"] <= pd.to_datetime("2026-09-13"))
     ].copy()
 
-    return df_day2, df_exiting
+    return df_active, df_exiting
 
-  with st.spinner("⏳ 正在計算處置股票與 AI 出關預測報告..."):
-    df_day2, df_exiting = fetch_all_disposition()
+  with st.spinner(
+      "⏳ 正在即時計算處置股票天數 (第1~4天) 與 AI 出關預測報告..."
+  ):
+    df_active, df_exiting = fetch_all_disposition()
 
-  # 1. 進處置第二天專區
-  st.subheader("🔥 1. 今日為「進處置第二天」之股票")
-  if df_day2.empty:
-    st.info("💡 目前無處置第二天的股票。")
+  # 1. 處置中專區 (依天數短至長排序)
+  st.subheader("🔥 1. 處置中股票 (依進入天數：第 1 天 ➔ 第 4 天 排序)")
+  if df_active.empty:
+    st.info("💡 目前無第 1 ~ 4 天的處置中股票。")
   else:
-    for idx, row in df_day2.iterrows():
+    for idx, row in df_active.iterrows():
       sid = row["stock_id"]
       sname = row.get("stock_name", "股票")
       ind = get_industry(sid)
+      day_num = int(row.get("disp_days", 1))
       s_str = (
           row["start_dt"].strftime("%Y-%m-%d")
           if pd.notna(row["start_dt"])
@@ -581,7 +610,8 @@ with tab2:
       )
 
       st.markdown(
-          f"### 📌 **{sid} {sname}** `{ind}` (處置期間：{s_str} ~ {e_str})"
+          f"### 📌 **【進入處置第 {day_num} 天】{sid} {sname}** `{ind}`"
+          f" (處置期間：{s_str} ~ {e_str})"
       )
 
       col_chart, col_ai = st.columns([1.6, 1])
@@ -627,7 +657,7 @@ with tab2:
 
       st.markdown("---")
 
-  # 2. 下個交易日即將出關專區 (含勝率分析)
+  # 2. 下個交易日即將出關專區 (含 AI 報告)
   st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
   if df_exiting.empty:
     st.info("💡 目前無即將出關的處置股票。")
