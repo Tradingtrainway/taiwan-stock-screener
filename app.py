@@ -24,7 +24,7 @@ INDUSTRY_MAP = {
     "3231": "AI伺服器與代工",
     "2357": "AI伺服器與代工",
     "6669": "AI伺服器與代工",
-    "6933": "AI伺服器與代工",
+    "6933": "AMAX-KY",
     "2376": "AI伺服器與代工",
     # 3. 液冷散熱與機殼
     "3017": "液冷散熱與機殼",
@@ -611,12 +611,12 @@ with tab3:
                 })
         df_tree = pd.DataFrame(treemap_rows)
         
-        fig_tree = px_treemap_chart = go.Figure(go.Treemap(
+        fig_tree = go.Figure(go.Treemap(
             labels=df_tree["Stock"],
             parents=df_tree["Sector"],
             values=df_tree["Value"],
             marker=dict(
-                colors=df_tree["Perf"],
+                color=df_tree["Perf"],  # 修正：colors 改為 color
                 colorscale="RdBu",
                 midpoint=0,
                 showscale=True,
