@@ -482,17 +482,17 @@ with tab2:
           else "未知"
       )
       st.markdown(f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str})")
-
-      try:
+# 繪製 K 線圖區塊
+        try:
             if df_stock is not None and not df_stock.empty:
                 st.plotly_chart(
                     draw_kline(
                         df_stock,
                         f"{sid} {sname}",
-                        start_dt=row.get('start_dt'),
-                        end_dt=row.get('end_dt')
+                        start_dt=row.get("start_dt"),
+                        end_dt=row.get("end_dt"),
                     ),
-                    use_container_width=True
+                    use_container_width=True,
                 )
             else:
                 st.warning("查無此股票之 K 線歷史資料")
