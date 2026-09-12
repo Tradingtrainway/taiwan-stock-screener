@@ -137,20 +137,18 @@ def fetch_stock_data_robust(stock_id):
     })
 
 # ==========================================
-# 🌐 全 AI 族群相對強弱排名與圓餅圖數據計算
+# 🌐 全 AI 族群相對強弱排名與表現計算
 # ==========================================
 @st.cache_data(ttl=3600)
 def fetch_all_ai_sector_ranks():
     all_sectors = list(set(INDUSTRY_MAP.values()))
     sector_perf = {}
     sector_details = {}
-    sector_volumes = {} # 用於圓餅圖計算資金規模
     
     for sec in all_sectors:
         sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
         pct_list = []
         details_list = []
-        total_vol = 0
         
         for sid in sec_stocks:
             df_s = fetch_stock_data_robust(sid)
@@ -160,25 +158,21 @@ def fetch_all_ai_sector_ranks():
                 c_prev = df_sorted["close"].iloc[-2]
                 pct = (c_curr - c_prev) / c_prev * 100
                 pct_list.append(pct)
-                vol = df_sorted["Trading_Volume"].iloc[-1] if "Trading_Volume" in df_sorted.columns else 10000
-                total_vol += vol
                 details_list.append(f"{sid} ({pct:+.1f}%)")
             else:
                 pct_list.append(1.5)
-                total_vol += 10000
                 details_list.append(f"{sid} (+1.5%)")
                 
         avg_pct = sum(pct_list) / len(pct_list) if pct_list else 1.5
         sector_perf[sec] = avg_pct
-        sector_volumes[sec] = max(total_vol, 1000)
         sector_details[sec] = " / ".join(details_list)
         
-    return sector_perf, sector_details, sector_volumes
+    return sector_perf, sector_details
 
 def analyze_ai_sector_relative_strength(target_stock_id):
     target_ind = get_industry(target_stock_id)
     try:
-        sector_perf, sector_details, _ = fetch_all_ai_sector_ranks()
+        sector_perf, sector_details = fetch_all_ai_sector_ranks()
     except Exception:
         sector_perf = {target_ind: 2.2, "AI伺服器與代工": 3.1}
         sector_details = {target_ind: f"{target_stock_id} (+2.2%) / 族群多頭整理"}
@@ -285,7 +279,7 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
     }
 
 # 建立分頁標籤
-tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業資金與強弱圓餅圖"])
+tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業強勢動能分佈"])
 
 # ==========================================
 # TAB 1: 低檔打底 + 投信鎖股策略
@@ -516,31 +510,34 @@ with tab2:
             st.markdown("---")
 
 # ==========================================
-# TAB 3: AI 次產業資金與強弱圓餅圖 (全新功能)
+# TAB 3: AI 次產業強勢動能分佈 (修正為強弱比例圓餅圖)
 # ==========================================
 with tab3:
-    st.title("🥧 台股全 AI 供應鏈次產業表現與資金佔比儀表板")
-    st.caption("仿專業視覺化風格，以互動式圓餅圖與長條圖呈現各大 AI 次產業（台積電、伺服器、散熱、CPO、IP、PCB等）的最新漲跌與資金熱度分佈。")
+    st.title("🥧 台股全 AI 供應鏈次產業強勢動能分佈")
+    st.caption("以圓餅圖呈現各大 AI 次產業的**「多頭漲勢強弱佔比」**（僅納入正報酬族群，以平均漲幅大小分配比重），搭配漲跌幅橫條圖，直覺掌握資金聚焦在哪個最強族群。")
 
-    with st.spinner("⏳ 正在統計各大 AI 次產業資金與表現數據..."):
+    with st.spinner("⏳ 正在計算各大 AI 次產業強弱與漲跌動能..."):
         try:
-            sector_perf, sector_details, sector_volumes = fetch_all_ai_sector_ranks()
+            sector_perf, sector_details = fetch_all_ai_sector_ranks()
         except Exception:
             sector_perf = {"AI伺服器與代工": 2.5, "CPO光傳輸/矽光子": 4.1, "液冷散熱與機殼": 1.8}
-            sector_volumes = {"AI伺服器與代工": 50000, "CPO光傳輸/矽光子": 30000, "液冷散熱與機殼": 20000}
             sector_details = {"AI伺服器與代工": "2382, 3231, 6669"}
 
     col_pie, col_bar = st.columns(2)
 
     with col_pie:
-        st.subheader("🥧 AI 次產業成交量 / 資金比重佔比")
-        pie_labels = list(sector_volumes.keys())
-        pie_values = list(sector_volumes.values())
+        st.subheader("🥧 AI 次產業多頭強勢動能佔比")
+        st.caption("說明：以各次產業的平均正漲幅作為強弱權重分配，數值越大代表該族群動能越強。")
         
+        # 只取漲幅大於 0 的族群來做強弱比例分配，如果全面下跌則取絕對值
+        pie_data = {k: max(v, 0.1) for k, v in sector_perf.items() if v > 0}
+        if not pie_data:
+            pie_data = {k: abs(v) + 1 for k, v in sector_perf.items()}
+            
         fig_pie = go.Figure(data=[go.Pie(
-            labels=pie_labels,
-            values=pie_values,
-            hole=0.4, # 甜甜圈圓餅圖風格，現代感十足
+            labels=list(pie_data.keys()),
+            values=list(pie_data.values()),
+            hole=0.4, # 甜甜圈圓餅圖風格
             textinfo="label+percent",
             hoverinfo="label+value+percent"
         )])
@@ -553,6 +550,8 @@ with tab3:
 
     with col_bar:
         st.subheader("📊 AI 各次產業平均漲跌幅比較 (%)")
+        st.caption("說明：直觀展示各大次產業的多空表現與排名。")
+        
         bar_df = pd.DataFrame({
             "次產業": list(sector_perf.keys()),
             "平均漲跌幅(%)": list(sector_perf.values())
