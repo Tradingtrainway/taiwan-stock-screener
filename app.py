@@ -539,11 +539,11 @@ with tab2:
             st.markdown("---")
 
 # ==========================================
-# TAB 3: AI 次產業動能、圓餅圖與 nStock 風格熱力圖 (支援點擊看走勢)
+# TAB 3: AI 次產業動能、圓餅圖與 nStock 風格熱力圖 (改良選單連動)
 # ==========================================
 with tab3:
     st.title("🗺️ 台股全 AI 與延伸供應鏈 — 次產業資金分佈與 nStock 專業熱力圖")
-    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖 Hover 可看成分股，**下方熱力圖提供快速下拉選單，點選任一檔股票即可在下方直接檢視其詳細 K 線與走勢圖！**")
+    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖 Hover 可看成分股。請透過下方的 **「個股快速檢視選單」** 點選您想查看的股票，即可立刻連動秀出該檔個股的詳細 K 線與技術走勢！")
 
     with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."):
         try:
@@ -645,13 +645,13 @@ with tab3:
     
     st.plotly_chart(fig_tree, use_container_width=True)
 
-    # 3. 互動查詢區塊：點選/選擇熱力圖中的股票看詳細走勢圖
+    # 3. 互動查詢區塊：選取股票看詳細走勢圖
     st.markdown("---")
-    st.subheader("🔍 熱力圖個股即時走勢與 K 線鑽取檢視")
+    st.subheader("🔍 個股即時走勢與 K 線鑽取檢視")
     
     sorted_stock_options = sorted(list(all_available_stocks.keys()))
     selected_stock_label = st.selectbox(
-        "💡 請選擇或直接輸入您想從熱力圖檢視當日走勢的標的：",
+        "💡 請選擇您想從熱力圖檢視當日走勢的標的：",
         sorted_stock_options,
         index=0
     )
