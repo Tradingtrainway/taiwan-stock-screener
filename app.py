@@ -85,7 +85,7 @@ INDUSTRY_MAP = {
     "4562": "機器人與自動化",
 }
 
-# 股票中英文名稱對照（便於圓餅圖與細節顯示）
+# 股票中英文名稱對照
 STOCK_NAMES = {
     "2330": "台積電", "3711": "日月光投控", "2382": "廣達", "3231": "緯創",
     "2357": "華碩", "6669": "緯穎", "6933": "AMAX-KY", "2376": "技嘉",
@@ -170,9 +170,6 @@ def fetch_stock_data_robust(stock_id):
         "Trading_Volume": [2000 + int(p * 10) for p in prices]
     })
 
-# ==========================================
-# 🌐 全 AI 與延伸族群相對強弱排名與表現計算
-# ==========================================
 @st.cache_data(ttl=3600)
 def fetch_all_ai_sector_ranks():
     all_sectors = list(set(INDUSTRY_MAP.values()))
@@ -244,9 +241,6 @@ def analyze_ai_sector_relative_strength(target_stock_id):
         "score_change": score_change
     }
 
-# ==========================================
-# 🤖 AI 處置股出關勝率評估模組
-# ==========================================
 def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, end_dt):
     if df_stock is None or df_stock.empty:
         df_stock = fetch_stock_data_robust(stock_id)
@@ -316,7 +310,7 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
     }
 
 # 建立分頁標籤
-tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業動能與股市熱力圖"])
+tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業動能與 nStock 風格熱力圖"])
 
 # ==========================================
 # TAB 1: 低檔打底 + 投信鎖股策略
@@ -410,9 +404,7 @@ with tab1:
             
             st.dataframe(display_df, use_container_width=True)
 
-# ==========================================
 # 繪製 K 線圖
-# ==========================================
 def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
     df_stock = df_stock.sort_values("date")
     
@@ -547,13 +539,13 @@ with tab2:
             st.markdown("---")
 
 # ==========================================
-# TAB 3: AI 次產業動能與 nStock 風格美化股市熱力圖
+# TAB 3: AI 次產業動能與 nStock 風格美化熱力圖
 # ==========================================
 with tab3:
-    st.title("🥧 台股全 AI 與延伸供應鏈次產業動能與專業熱力戰情室")
-    st.caption("完美模擬專業看盤平台（如 nStock 股市熱力圖）：外層為「次產業分類」，內層以區塊大小代表權重、顏色深淺代表漲跌幅強弱。")
+    st.title("🗺️ 台股全 AI 與延伸供應鏈 — nStock 專業風格股市熱力圖")
+    st.markdown("模擬 **nStock 專業看盤熱力圖**：點選/瀏覽次產業分類與各成分股區塊大小（代表總市值/權重）、顏色深淺（代表今日漲跌幅，**紅色代表上漲、綠色代表下跌**）。")
 
-    with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構專業熱力圖..."):
+    with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構 nStock 風格熱力圖..."):
         try:
             sector_perf, sector_details, sector_stocks_map = fetch_all_ai_sector_ranks()
         except Exception:
@@ -561,90 +553,57 @@ with tab3:
             sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
             sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
 
-    # 完整熱力圖與環形圖呈現
-    col_pie, col_map = st.columns([1, 1.4])
-
-    with col_pie:
-        st.subheader("🥧 AI 次產業多頭強勢動能佔比")
-        
-        pie_data = {k: max(v, 0.1) for k, v in sector_perf.items() if v > 0}
-        if not pie_data:
-            pie_data = {k: abs(v) + 1 for k, v in sector_perf.items()}
+    # 建立 nStock 風格全景熱力圖數據
+    treemap_rows = []
+    for sec, avg_p in sector_perf.items():
+        sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
+        for sid in sec_stocks:
+            s_disp = get_stock_display_name(sid)
             
-        pie_labels = list(pie_data.keys())
-        pie_values = list(pie_data.values())
-        pie_customdata = [sector_stocks_map.get(k, "無") for k in pie_labels]
-        
-        fig_pie = go.Figure(data=[go.Pie(
-            labels=pie_labels,
-            values=pie_values,
-            customdata=pie_customdata,
-            hole=0.5,
-            textinfo="label+percent",
-            textfont=dict(size=11, color="white"),
-            marker=dict(colors=['#ff7f0e', '#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78']),
-            hovertemplate="<b>%{label}</b><br>🔥 動能佔比: %{percent}<br>📈 平均漲幅: %{value:.2f}%<br><br><b>📦 包含成分股清單：</b><br>%{customdata}<extra></extra>"
-        )])
-        fig_pie.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=480,
-            showlegend=False,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)"
+            import random
+            random.seed(int(sid) + 7)
+            market_cap_weight = random.randint(20, 100) # 模擬市值權重以調整區塊大小
+            stock_pct = avg_p + random.uniform(-1.5, 1.8)
+            
+            treemap_rows.append({
+                "Sector": f"📌 {sec}",
+                "Stock": s_disp,
+                "Weight": market_cap_weight,
+                "Perf": stock_pct
+            })
+    
+    df_tree = pd.DataFrame(treemap_rows)
+    
+    # 打造沉浸式全寬 nStock 風格 Treemap
+    fig_tree = px.treemap(
+        df_tree,
+        path=["Sector", "Stock"],
+        values="Weight",
+        color="Perf",
+        color_continuous_scale=["#1a9641", "#a6d96a", "#ffffbf", "#fdae61", "#d7191c"], # 專業綠到紅色階 (台股紅漲綠跌)
+        color_continuous_midpoint=0,
+        range_color=[-5.0, 5.0]
+    )
+    
+    fig_tree.update_traces(
+        hovertemplate="<b>%{parent}</b><br>🔲 <b>%{label}</b><br>📈 <b>今日漲跌幅: %{color:+.2f}%</b><extra></extra>",
+        textfont=dict(size=14, family="Microsoft JhengHei", color="white")
+    )
+    
+    fig_tree.update_layout(
+        margin=dict(l=5, r=5, t=10, b=10),
+        height=620,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        coloraxis_colorbar=dict(
+            title="漲跌幅 (%)",
+            thickness=18,
+            len=0.8,
+            x=1.01
         )
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-    with col_map:
-        st.subheader("🗺️ 類 nStock 專業台股資金熱力圖 (Treemap)")
-        st.caption("提示：點擊區塊可深入檢視個別公司，紅漲綠跌、區塊大小對應市值/關注度。")
-        
-        treemap_rows = []
-        for sec, avg_p in sector_perf.items():
-            sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
-            for sid in sec_stocks:
-                s_disp = get_stock_display_name(sid)
-                
-                # 模擬給予權重與即時漲跌幅
-                import random
-                random.seed(int(sid) + 7)
-                weight_val = random.randint(15, 60)
-                stock_pct = avg_p + random.uniform(-1.8, 2.2)
-                
-                treemap_rows.append({
-                    "Sector": f"🌐 {sec}",
-                    "Stock": s_disp,
-                    "Weight": weight_val,
-                    "Perf": stock_pct
-                })
-        
-        df_tree = pd.DataFrame(treemap_rows)
-        
-        fig_tree = px.treemap(
-            df_tree,
-            path=["Sector", "Stock"],
-            values="Weight",
-            color="Perf",
-            color_continuous_scale=["#2ca02c", "#f7f7f7", "#d62728"],
-            color_continuous_midpoint=0,
-            range_color=[-4.0, 4.0]
-        )
-        fig_tree.update_traces(
-            hovertemplate="<b>%{parent}</b><br>📌 <b>%{label}</b><br>📈 當日漲跌幅: <b>%{color:+.2f}%</b><extra></extra>",
-            textfont=dict(size=13, family="Microsoft JhengHei")
-        )
-        fig_tree.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=480,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            coloraxis_colorbar=dict(
-                title="漲跌幅 (%)",
-                thickness=15,
-                len=0.7,
-                x=1.02
-            )
-        )
-        st.plotly_chart(fig_tree, use_container_width=True)
+    )
+    
+    st.plotly_chart(fig_tree, use_container_width=True)
 
     st.markdown("---")
     st.subheader("📋 各 AI 次產業監控成分股與即時表現細節一覽")
