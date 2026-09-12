@@ -269,12 +269,24 @@ with tab2:
   @st.cache_data(ttl=3600)
   def get_disposition_data():
     try:
-      # 抓取證交所處置股票資訊
-      df_disp = dl.taiwan_stock_disposition(
+      # 正確修復 API 名稱：taiwan_stock_disposition_with_margin_purchase_and_short_sale
+      df_disp = dl.taiwan_stock_disposition_with_margin_purchase_and_short_sale(
           start_date=start_date, end_date=end_date
       )
       if df_disp is None or df_disp.empty:
         return pd.DataFrame(), pd.DataFrame()
+
+      # 欄位自動相容對照
+      date_col = (
+          "disposition_start_date"
+          if "disposition_start_date" in df_disp.columns
+          else "start_date"
+      )
+      end_date_col = (
+          "disposition_end_date"
+          if "disposition_end_date" in df_disp.columns
+          else "end_date"
+      )
 
       # 取得股票名稱對照
       df_info = dl.taiwan_stock_info()
@@ -282,13 +294,12 @@ with tab2:
           df_disp, df_info[["stock_id", "stock_name"]], on="stock_id", how="left"
       )
 
-      # 日期轉換與處理
-      df_disp["start_date"] = pd.to_datetime(df_disp["disposition_start_date"])
-      df_disp["end_date"] = pd.to_datetime(df_disp["disposition_end_date"])
+      df_disp["start_dt"] = pd.to_datetime(df_disp[date_col])
+      df_disp["end_dt"] = pd.to_datetime(df_disp[end_date_col])
 
-      # 取每檔股票最新的處置紀錄
+      # 取得最新處置紀錄
       df_disp_latest = (
-          df_disp.sort_values("start_date")
+          df_disp.sort_values("start_dt")
           .groupby("stock_id")
           .last()
           .reset_index()
@@ -296,15 +307,14 @@ with tab2:
 
       today_dt = pd.to_datetime(today)
 
-      # 1. 進處置第二天 (處置起始日 + 1個交易日左右)
-      # 註：此處以曆日第 1~3 天間對應交易日第二天
+      # 1. 進處置第二天 (開始日距今 1~3 天左右)
       df_day2 = df_disp_latest[
-          (today_dt - df_disp_latest["start_date"]).dt.days.between(1, 3)
+          (today_dt - df_disp_latest["start_dt"]).dt.days.between(1, 3)
       ].copy()
 
-      # 2. 即將出關 (結束日為今天或下一個交易日)
+      # 2. 即將出關 (結束日距今 0~2 天左右)
       df_exiting = df_disp_latest[
-          (df_disp_latest["end_date"] - today_dt).dt.days.between(0, 2)
+          (df_disp_latest["end_dt"] - today_dt).dt.days.between(0, 2)
       ].copy()
 
       return df_day2, df_exiting
@@ -323,12 +333,10 @@ with tab2:
     for idx, row in df_day2.iterrows():
       sid = row["stock_id"]
       sname = row.get("stock_name", "未知")
-      st.markdown(
-          f"### 📌 **{sid} {sname}** (處置期間：{row['disposition_start_date']} ~"
-          f" {row['disposition_end_date']})"
-      )
+      s_str = row["start_dt"].strftime("%Y-%m-%d")
+      e_str = row["end_dt"].strftime("%Y-%m-%d")
+      st.markdown(f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str})")
 
-      # 繪製日 K 線
       try:
         df_stock_k = dl.taiwan_stock_daily(
             stock_id=sid,
@@ -354,11 +362,9 @@ with tab2:
     for idx, row in df_exiting.iterrows():
       sid = row["stock_id"]
       sname = row.get("stock_name", "未知")
-      st.markdown(
-          f"### 📌 **{sid} {sname}** (處置結束日：{row['disposition_end_date']})"
-      )
+      e_str = row["end_dt"].strftime("%Y-%m-%d")
+      st.markdown(f"### 📌 **{sid} {sname}** (預計處置結束日：{e_str})")
 
-      # 繪製日 K 線
       try:
         df_stock_k = dl.taiwan_stock_daily(
             stock_id=sid,
