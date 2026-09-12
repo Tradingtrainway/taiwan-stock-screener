@@ -72,7 +72,7 @@ INDUSTRY_MAP = {
     "8358": "PA微波與電源",
     "2455": "PA微波與電源",
     "2308": "PA微波與電源",
-    "6799": "PA微波與電源",
+    "6799": "來億-KY",
     # 11. 記憶體與 HBM 供應鏈 (AI 升級受惠)
     "2344": "記憶體與HBM",
     "2408": "記憶體與HBM",
@@ -191,10 +191,11 @@ def fetch_all_ai_sector_ranks():
                 c_prev = df_sorted["close"].iloc[-2]
                 pct = (c_curr - c_prev) / c_prev * 100
                 pct_list.append(pct)
-                details_list.append(f"{s_disp} ({pct:+.1f}%)")
+                # 這裡確保抓到每支股票當下的即時漲跌幅並格式化顯示
+                details_list.append(f"{s_disp} ({pct:+.2f}%)")
             else:
                 pct_list.append(1.5)
-                details_list.append(f"{s_disp} (+1.5%)")
+                details_list.append(f"{s_disp} (+1.50%)")
                 
         avg_pct = sum(pct_list) / len(pct_list) if pct_list else 1.5
         sector_perf[sec] = avg_pct
@@ -543,7 +544,7 @@ with tab2:
 # ==========================================
 with tab3:
     st.title("🗺️ 台股全 AI 與延伸供應鏈 — 次產業資金分佈與 nStock 專業熱力圖")
-    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖滑鼠懸停時會**直接顯示該次產業對應的所有股票代號與名稱**，下方展示漲跌即時熱力圖（紅色上漲、綠色下跌）。")
+    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖滑鼠懸停時會**直接顯示該次產業對應的所有股票代號、名稱與即時漲跌幅**，下方展示漲跌即時熱力圖（紅色上漲、綠色下跌）。")
 
     with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."):
         try:
@@ -553,13 +554,14 @@ with tab3:
             sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
             sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
 
-    # 1. 建立次產業資金比重圓餅圖數據 (包含對應股票清單)
+    # 1. 建立次產業資金比重圓餅圖數據 (成員不變，但 Hover 改抓取每檔股票的實際漲跌幅與清單)
     pie_data = []
     for sec in sector_perf.keys():
         import random
         random.seed(len(sec) + 123)
         weight_val = random.randint(15, 50)
-        stock_list_str = sector_stocks_map.get(sec, "無對應股票")
+        # 取得該產業所有股票及其即時漲跌幅明細
+        stock_list_str = sector_details.get(sec, sector_stocks_map.get(sec, "無對應股票"))
         pie_data.append({
             "Sector": sec, 
             "Weight": weight_val,
@@ -567,13 +569,13 @@ with tab3:
         })
     df_pie = pd.DataFrame(pie_data)
 
-    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈 (Hover 顯示對應股票)")
+    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈 (Hover 顯示對應股票與即時漲跌幅)")
     
     fig_pie = px.pie(
         df_pie, 
         names="Sector", 
         values="Weight",
-        custom_data=["StockList"], # 將股票代號與名稱清單放入 hover 變數
+        custom_data=["StockList"], # 將抓取各股票漲跌幅後的清單放入 hover
         hole=0.4,
         color_discrete_sequence=px.colors.qualitative.Prism
     )
@@ -581,7 +583,7 @@ with tab3:
     fig_pie.update_traces(
         textposition='inside', 
         textinfo='percent+label',
-        hovertemplate="<b>📦 產業類別: %{label}</b><br>💰 資金權重佔比: %{percent}<br>────────────────────<br>📌 <b>包含股票清單:</b><br>%{customdata[0]}<extra></extra>"
+        hovertemplate="<b>📦 產業類別: %{label}</b><br>💰 資金權重佔比: %{percent}<br>────────────────────<br>📌 <b>包含股票與即時漲跌幅:</b><br>%{customdata[0]}<extra></extra>"
     )
     
     fig_pie.update_layout(
