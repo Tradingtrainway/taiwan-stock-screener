@@ -226,8 +226,12 @@ with tab1:
 # ==========================================
 # 輔助函式：繪製 K 線圖
 # ==========================================
-def draw_kline(df_stock, stock_id):
+def draw_kline# ==========================================
+# 繪製 K 線圖 (新增處置當天標籤與區間渲染)
+# ==========================================
+def draw_kline(df_stock, stock_title, start_dt=None, end_dt=None):
   df_stock = df_stock.sort_values("date")
+
   fig = go.Figure(
       data=[
           go.Candlestick(
@@ -236,19 +240,67 @@ def draw_kline(df_stock, stock_id):
               high=df_stock["max"],
               low=df_stock["min"],
               close=df_stock["close"],
-              increasing_line_color="red",
-              decreasing_line_color="green",
+              increasing_line_color="#d62728",  # 台股紅漲
+              decreasing_line_color="#2ca02c",  # 台股綠跌
               name="K線",
           )
       ]
   )
+
+  # 若有帶入處置日期資訊，進行遮罩與處置當天標籤繪製
+  if pd.notna(start_dt) and pd.notna(end_dt):
+    s_str = (
+        start_dt.strftime("%Y-%m-%d")
+        if hasattr(start_dt, "strftime")
+        else str(start_dt)[:10]
+    )
+    e_str = (
+        end_dt.strftime("%Y-%m-%d")
+        if hasattr(end_dt, "strftime")
+        else str(end_dt)[:10]
+    )
+
+    # 1. 處置期間背景半透明橙黃色區間遮罩
+    fig.add_vrect(
+        x0=s_str,
+        x1=e_str,
+        fillcolor="rgba(255, 165, 0, 0.25)",
+        layer="below",
+        line_width=1,
+        line_dash="dot",
+        line_color="rgba(255, 140, 0, 0.7)",
+    )
+
+    # 2. 找到處置起始當天的 K 線最高價，精準標記紅色箭頭與標籤
+    df_start = df_stock[df_stock["date"] == s_str]
+    if not df_start.empty:
+      high_price = df_start["max"].values[0]
+      fig.add_annotation(
+          x=s_str,
+          y=high_price,
+          text="🚨 處置開始",
+          showarrow=True,
+          arrowhead=2,
+          arrowsize=1,
+          arrowwidth=2,
+          arrowcolor="#d62728",
+          ax=0,
+          ay=-35,  # 標籤上浮距離
+          font=dict(size=12, color="white"),
+          bgcolor="#d62728",
+          bordercolor="#d62728",
+          borderwidth=1,
+          borderpad=4,
+      )
+
   fig.update_layout(
-      title=f"代號：{stock_id} 近60日日K線圖",
+      title=f"{stock_title} - K線圖",
       xaxis_title="日期",
       yaxis_title="價格",
       xaxis_rangeslider_visible=False,
-      height=350,
+      height=380,
       margin=dict(l=20, r=20, t=40, b=20),
+      hovermode="x unified",
   )
   return fig
 
