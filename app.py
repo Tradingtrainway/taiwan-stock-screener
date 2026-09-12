@@ -597,7 +597,8 @@ with tab3:
         st.subheader("🗺️ AI 概念族群股市熱力圖 (Treemap)")
         st.caption("提示：區塊越大代表權重/基數越高，顏色越紅代表漲幅越強、越綠代表拉回。")
         
-        # 建立 Treemap 用的 DataFrame
+        # 建立 Treemap 用的 DataFrame (使用 Plotly Express 繞過 graph_objects 嚴格驗證)
+        import plotly.express as px
         treemap_rows = []
         for sec, avg_p in sector_perf.items():
             sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
@@ -606,26 +607,22 @@ with tab3:
                 treemap_rows.append({
                     "Sector": sec,
                     "Stock": s_disp,
-                    "Value": 10,  # 區塊大小權重
-                    "Perf": avg_p # 用來上色
+                    "Value": 10,
+                    "Perf": avg_p
                 })
         df_tree = pd.DataFrame(treemap_rows)
         
-        fig_tree = go.Figure(go.Treemap(
-            labels=df_tree["Stock"],
-            parents=df_tree["Sector"],
-            values=df_tree["Value"],
-            marker=dict(
-                color=df_tree["Perf"],  # 修正：colors 改為 color
-                colorscale="RdBu",
-                midpoint=0,
-                showscale=True,
-                colorbar=dict(title="漲跌幅 (%)", thickness=15, len=0.8)
-            ),
-            textinfo="label+text",
+        fig_tree = px.treemap(
+            df_tree,
+            path=["Sector", "Stock"],
+            values="Value",
+            color="Perf",
+            color_continuous_scale="RdBu",
+            color_continuous_midpoint=0
+        )
+        fig_tree.update_traces(
             hovertemplate="<b>%{parent}</b> ➔ <b>%{label}</b><br>族群平均表現: %{color:.2f}%<extra></extra>"
-        ))
-        
+        )
         fig_tree.update_layout(
             margin=dict(l=10, r=10, t=20, b=20),
             height=440,
