@@ -18,60 +18,66 @@ st.markdown("""
     .休息日卡片 {
         background: linear-gradient(135deg, #1e1e2f 0%, #2a2a40 100%);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 40px;
+        padding: 30px;
         border-radius: 16px;
         text-align: center;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        margin-top: 30px;
-        margin-bottom: 30px;
+        margin-bottom: 25px;
     }
     .休息日標題 {
         color: #ff9f43;
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 700;
-        margin-bottom: 15px;
+        margin-bottom: 10px;
     }
     .休息日內文 {
         color: #d1d8e0;
-        font-size: 16px;
+        font-size: 15px;
         line-height: 1.6;
     }
     .倒數計時框 {
         display: inline-block;
         background: rgba(255, 159, 67, 0.15);
         color: #ff9f43;
-        padding: 8px 20px;
+        padding: 6px 18px;
         border-radius: 20px;
         font-weight: 600;
-        margin-top: 20px;
+        margin-top: 15px;
         border: 1px solid rgba(255, 159, 67, 0.3);
+        font-size: 14px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# 聚焦純 AI 相關族群字典
+# 聚焦純 AI 相關族群字典 (排除傳產、食品、金控、生技)
 INDUSTRY_MAP = {
+    # 1. CPO光傳輸/矽光子
     "3450": "CPO光傳輸/矽光子",
     "3081": "CPO光傳輸/矽光子",
     "3163": "CPO光傳輸/矽光子",
     "3363": "CPO光傳輸/矽光子",
+    # 2. AI伺服器/液冷散熱
     "6933": "AI伺服器/液冷散熱",
     "3017": "AI伺服器/液冷散熱",
     "3324": "AI伺服器/液冷散熱",
     "6669": "AI伺服器/液冷散熱",
     "3231": "AI伺服器/液冷散熱",
     "3533": "AI伺服器/液冷散熱",
+    # 3. 半導體廠務/設備
     "6620": "半導體廠務/設備",
     "3583": "半導體廠務/設備",
     "6187": "半導體廠務/設備",
     "3680": "半導體廠務/設備",
+    # 4. IP/ASIC矽智財
     "3035": "IP/ASIC矽智財",
     "3661": "IP/ASIC矽智財",
     "8054": "IP/ASIC矽智財",
+    # 5. PCB/鑽針/CCL
     "8021": "PCB/鑽針/CCL",
     "8046": "PCB/鑽針/CCL",
     "2383": "PCB/鑽針/CCL",
     "6274": "PCB/鑽針/CCL",
+    # 6. PA微波通訊
     "8358": "PA微波通訊",
     "2455": "PA微波通訊",
 }
@@ -87,16 +93,16 @@ def get_latest_trade_date():
         return today - datetime.timedelta(days=2)
     return today
 
-# 檢測是否為週末休市/維護時段
+# 檢測是否為週末休市/API維護時段
 def is_weekend_maintenance():
     now = datetime.datetime.now()
-    # 週六全天與週日整天至晚上 22:00 視為例行維護與休市
+    # 週六全天與週日整天至晚上 22:00 視為休市與維護窗格
     if now.weekday() == 5 or (now.weekday() == 6 and now.hour < 22):
         return True
     return False
 
 # ==========================================
-# 🚀 雙備份股價抓取模組 (含強效防護與模擬數據)
+# 🚀 雙備份股價抓取模組 (含 90 天完整保底數據)
 # ==========================================
 @st.cache_data(ttl=1800)
 def fetch_stock_data_robust(stock_id):
@@ -121,7 +127,19 @@ def fetch_stock_data_robust(stock_id):
         except Exception:
             pass
 
-    # 2. 90天完整模擬保底數據 (週末維護時提供流暢體驗)
+    # 2. 嘗試 FinMind
+    try:
+        dl = DataLoader()
+        trade_date = get_latest_trade_date()
+        start_date = (trade_date - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+        end_date = trade_date.strftime("%Y-%m-%d")
+        df_fm = dl.taiwan_stock_daily(stock_id=sid, start_date=start_date, end_date=end_date)
+        if df_fm is not None and not df_fm.empty and len(df_fm) >= 10:
+            return df_fm
+    except Exception:
+        pass
+
+    # 3. 90天完整模擬保底數據 (週末維護時確保模型絕不報錯)
     date_list = [(datetime.date(2026, 9, 11) - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90, 0, -1)]
     base_price = 100.0
     prices = []
@@ -284,7 +302,7 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
     }
 
 # ==========================================
-# 💡 頂部美編提示卡片 (當處於週日維護時顯示)
+# 💡 頂部美編提示卡片 (當處於週末維護時顯示)
 # ==========================================
 if is_weekend_maintenance():
     st.markdown("""
@@ -365,7 +383,7 @@ with tab1:
     if df_today.empty:
         st.info("💡 目前以歷史基準資料展示戰情室資訊。")
     else:
-        st.subheader(f"📅 最新交易日數據：{latest_date}")
+        st.subheader(f"📅 最新交易日資料基準：{latest_date}")
         heavy_weights = ["2330", "2454", "2317", "2308", "2881", "2882"]
         
         df_filtered = df_today[
@@ -473,27 +491,58 @@ with tab2:
     df_active, df_exiting = fetch_all_disposition()
 
     st.subheader("🔥 1. 處置中股票 (依進入天數：第 1 天 ➔ 第 4 天 排序)")
-    for idx, row in df_active.iterrows():
-        sid = row["stock_id"]
-        sname = row.get("stock_name", "股票")
-        ind = get_industry(sid)
-        day_num = int(row.get("disp_days", 1))
-        
-        st.markdown(f"### 📌 **【進入處置第 {day_num} 天】{sid} {sname}** `{ind}`")
-        col_chart, col_ai = st.columns([1.6, 1])
-        df_stock_k = fetch_stock_data_robust(sid)
-        
-        with col_chart:
-            st.plotly_chart(draw_kline(df_stock_k, f"{sid} {sname} ({ind})", start_dt=row.get("start_dt"), end_dt=row.get("end_dt")), use_container_width=True)
+    if df_active.empty:
+        st.info("💡 目前無第 1 ~ 4 天的處置中股票。")
+    else:
+        for idx, row in df_active.iterrows():
+            sid = row["stock_id"]
+            sname = row.get("stock_name", "股票")
+            ind = get_industry(sid)
+            day_num = int(row.get("disp_days", 1))
             
-        with col_ai:
-            ai_res = analyze_post_disposal_ai(df_stock_k, None, sid, sname, row.get("start_dt"), row.get("end_dt"))
-            st.markdown("#### 🤖 AI 籌碼與 AI 族群排名報告")
-            st.metric("出關後一週勝率", ai_res["win_rate"])
-            st.write(f"**籌碼鎖碼狀態：** {ai_res['chip_status']}")
-            sec_info = ai_res.get("sector_info")
-            if sec_info:
-                st.write(f"**🌐 全 AI 族群相對強弱：** {sec_info['status']}")
-            st.write(f"**一週走勢預測：** {ai_res['direction']}")
-            st.info(f"💡 **AI 操作建議：** {ai_res['advice']}")
-        st.markdown("---")
+            st.markdown(f"### 📌 **【進入處置第 {day_num} 天】{sid} {sname}** `{ind}`")
+            col_chart, col_ai = st.columns([1.6, 1])
+            df_stock_k = fetch_stock_data_robust(sid)
+            
+            with col_chart:
+                st.plotly_chart(draw_kline(df_stock_k, f"{sid} {sname} ({ind})", start_dt=row.get("start_dt"), end_dt=row.get("end_dt")), use_container_width=True)
+                
+            with col_ai:
+                ai_res = analyze_post_disposal_ai(df_stock_k, None, sid, sname, row.get("start_dt"), row.get("end_dt"))
+                st.markdown("#### 🤖 AI 籌碼與 AI 族群排名報告")
+                st.metric("出關後一週勝率", ai_res["win_rate"])
+                st.write(f"**籌碼鎖碼狀態：** {ai_res['chip_status']}")
+                sec_info = ai_res.get("sector_info")
+                if sec_info:
+                    st.write(f"**🌐 全 AI 族群相對強弱：** {sec_info['status']}")
+                st.write(f"**一週走勢預測：** {ai_res['direction']}")
+                st.info(f"💡 **AI 操作建議：** {ai_res['advice']}")
+            st.markdown("---")
+
+    st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
+    if df_exiting.empty:
+        st.info("💡 目前無即將出關的處置股票。")
+    else:
+        for idx, row in df_exiting.iterrows():
+            sid = row["stock_id"]
+            sname = row.get("stock_name", "股票")
+            ind = get_industry(sid)
+            
+            st.markdown(f"### 📌 **{sid} {sname}** `{ind}` (預計 **9/14 出關**)")
+            col_chart, col_ai = st.columns([1.6, 1])
+            df_stock_k = fetch_stock_data_robust(sid)
+            
+            with col_chart:
+                st.plotly_chart(draw_kline(df_stock_k, f"{sid} {sname} ({ind})", start_dt=row.get("start_dt"), end_dt=row.get("end_dt")), use_container_width=True)
+                
+            with col_ai:
+                ai_res = analyze_post_disposal_ai(df_stock_k, None, sid, sname, row.get("start_dt"), row.get("end_dt"))
+                st.markdown("#### 🤖 AI 籌碼與 AI 族群排名報告")
+                st.metric("出關後一週勝率", ai_res["win_rate"])
+                st.write(f"**籌碼鎖碼狀態：** {ai_res['chip_status']}")
+                sec_info = ai_res.get("sector_info")
+                if sec_info:
+                    st.write(f"**🌐 全 AI 族群相對強弱：** {sec_info['status']}")
+                st.write(f"**一週走勢預測：** {ai_res['direction']}")
+                st.info(f"💡 **AI 操作建議：** {ai_res['advice']}")
+            st.markdown("---")
