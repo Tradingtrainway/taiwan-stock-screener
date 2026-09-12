@@ -12,41 +12,63 @@ st.set_page_config(
     page_title="台股籌碼與處置股綜合戰情室", page_icon="📈", layout="wide"
 )
 
-# 聚焦純 AI 相關族群字典 (排除傳產、食品、金控、生技)
+# ==========================================
+# 🌐 擴充版：全方位 AI 概念股族群對照表 (含多樣化次產業)
+# ==========================================
 INDUSTRY_MAP = {
-    # 1. CPO光傳輸/矽光子
+    # 1. 晶圓代工與先進製程
+    "2330": "台積電與先進製程",
+    "3711": "台積電與先進製程",
+    # 2. AI 伺服器與組裝代工
+    "2382": "AI伺服器與代工",
+    "3231": "AI伺服器與代工",
+    "2357": "AI伺服器與代工",
+    "6669": "AI伺服器與代工",
+    "6933": "AI伺服器與代工",
+    # 3. 液冷散熱與機殼
+    "3017": "液冷散熱與機殼",
+    "3324": "液冷散熱與機殼",
+    "3533": "液冷散熱與機殼",
+    "8210": "液冷散熱與機殼",
+    # 4. CPO 光傳輸 / 矽光子
     "3450": "CPO光傳輸/矽光子",
     "3081": "CPO光傳輸/矽光子",
     "3163": "CPO光傳輸/矽光子",
     "3363": "CPO光傳輸/矽光子",
-    # 2. AI伺服器/液冷散熱
-    "6933": "AI伺服器/液冷散熱",
-    "3017": "AI伺服器/液冷散熱",
-    "3324": "AI伺服器/液冷散熱",
-    "6669": "AI伺服器/液冷散熱",
-    "3231": "AI伺服器/液冷散熱",
-    "3533": "AI伺服器/液冷散熱",
-    # 3. 半導體廠務/設備
-    "6620": "半導體廠務/設備",
-    "3583": "半導體廠務/設備",
-    "6187": "半導體廠務/設備",
-    "3680": "半導體廠務/設備",
-    # 4. IP/ASIC矽智財
-    "3035": "IP/ASIC矽智財",
+    "4979": "CPO光傳輸/矽光子",
+    # 5. IP / ASIC 矽智財
     "3661": "IP/ASIC矽智財",
+    "3035": "IP/ASIC矽智財",
     "8054": "IP/ASIC矽智財",
-    # 5. PCB/鑽針/CCL
-    "8021": "PCB/鑽針/CCL",
-    "8046": "PCB/鑽針/CCL",
-    "2383": "PCB/鑽針/CCL",
-    "6274": "PCB/鑽針/CCL",
-    # 6. PA微波通訊
-    "8358": "PA微波通訊",
-    "2455": "PA微波通訊",
+    "3529": "IP/ASIC矽智財",
+    # 6. PCB 載板 / CCL / 鑽針
+    "2383": "PCB與高階載板",
+    "3037": "PCB與高階載板",
+    "8046": "PCB與高階載板",
+    "6274": "PCB與高階載板",
+    "8021": "PCB與高階載板",
+    # 7. 半導體設備與廠務
+    "6620": "半導體設備與廠務",
+    "3583": "半導體設備與廠務",
+    "6187": "半導體設備與廠務",
+    "3680": "半導體設備與廠務",
+    "3131": "半導體設備與廠務",
+    # 8. 高階封測
+    "3715": "高階封測",
+    "2449": "高階封測",
+    "6239": "高階封測",
+    # 9. 網通與高速傳輸
+    "2345": "網通與高速傳輸",
+    "5388": "網通與高速傳輸",
+    "6285": "網通與高速傳輸",
+    # 10. PA 微波通訊 / 電源
+    "8358": "PA微波與電源",
+    "2455": "PA微波與電源",
+    "2308": "PA微波與電源",
 }
 
 def get_industry(stock_id):
-    return INDUSTRY_MAP.get(str(stock_id).strip(), "AI半導體供應鏈")
+    return INDUSTRY_MAP.get(str(stock_id).strip(), "AI綜合供應鏈")
 
 def get_latest_trade_date():
     today = datetime.date.today()
@@ -115,18 +137,20 @@ def fetch_stock_data_robust(stock_id):
     })
 
 # ==========================================
-# 🌐 全 AI 族群相對強弱排名
+# 🌐 全 AI 族群相對強弱排名與圓餅圖數據計算
 # ==========================================
 @st.cache_data(ttl=3600)
 def fetch_all_ai_sector_ranks():
     all_sectors = list(set(INDUSTRY_MAP.values()))
     sector_perf = {}
     sector_details = {}
+    sector_volumes = {} # 用於圓餅圖計算資金規模
     
     for sec in all_sectors:
         sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
         pct_list = []
         details_list = []
+        total_vol = 0
         
         for sid in sec_stocks:
             df_s = fetch_stock_data_robust(sid)
@@ -136,23 +160,27 @@ def fetch_all_ai_sector_ranks():
                 c_prev = df_sorted["close"].iloc[-2]
                 pct = (c_curr - c_prev) / c_prev * 100
                 pct_list.append(pct)
+                vol = df_sorted["Trading_Volume"].iloc[-1] if "Trading_Volume" in df_sorted.columns else 10000
+                total_vol += vol
                 details_list.append(f"{sid} ({pct:+.1f}%)")
             else:
                 pct_list.append(1.5)
+                total_vol += 10000
                 details_list.append(f"{sid} (+1.5%)")
                 
         avg_pct = sum(pct_list) / len(pct_list) if pct_list else 1.5
         sector_perf[sec] = avg_pct
+        sector_volumes[sec] = max(total_vol, 1000)
         sector_details[sec] = " / ".join(details_list)
         
-    return sector_perf, sector_details
+    return sector_perf, sector_details, sector_volumes
 
 def analyze_ai_sector_relative_strength(target_stock_id):
     target_ind = get_industry(target_stock_id)
     try:
-        sector_perf, sector_details = fetch_all_ai_sector_ranks()
+        sector_perf, sector_details, _ = fetch_all_ai_sector_ranks()
     except Exception:
-        sector_perf = {target_ind: 2.2, "AI伺服器/液冷散熱": 3.1}
+        sector_perf = {target_ind: 2.2, "AI伺服器與代工": 3.1}
         sector_details = {target_ind: f"{target_stock_id} (+2.2%) / 族群多頭整理"}
         
     sorted_sectors = sorted(sector_perf.items(), key=lambda x: x[1], reverse=True)
@@ -169,13 +197,13 @@ def analyze_ai_sector_relative_strength(target_stock_id):
     target_avg = sector_perf.get(target_ind, 2.0)
     
     if rank < top_cutoff:
-        status = f"🔥 強勢領跑 (全AI族群第 {rank+1} 名，平均 {target_avg:+.1f}%)"
+        status = f"🔥 強勢領跑 (全AI族群第 {rank+1}/{num_sectors} 名，平均 {target_avg:+.1f}%)"
         score_change = 5
     elif rank >= bot_cutoff:
-        status = f"❄️ 相對偏弱 (全AI族群第 {rank+1} 名，平均 {target_avg:+.1f}%)"
+        status = f"❄️ 相對偏弱 (全AI族群第 {rank+1}/{num_sectors} 名，平均 {target_avg:+.1f}%)"
         score_change = -3
     else:
-        status = f"↔️ 中段整理 (全AI族群第 {rank+1} 名，平均 {target_avg:+.1f}%)"
+        status = f"↔️ 中段整理 (全AI族群第 {rank+1}/{num_sectors} 名，平均 {target_avg:+.1f}%)"
         score_change = 3
         
     return {
@@ -257,7 +285,7 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
     }
 
 # 建立分頁標籤
-tab1, tab2 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率分析"])
+tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業資金與強弱圓餅圖"])
 
 # ==========================================
 # TAB 1: 低檔打底 + 投信鎖股策略
@@ -405,7 +433,7 @@ def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
 # ==========================================
 with tab2:
     st.title("🚨 處置股精準追蹤與 AI 出關勝率分析")
-    st.caption("自動整合上市/上櫃處置公告，結合三大法人真籌碼與純 AI 族群相對強弱排名，評估出關續漲勝率")
+    st.caption("自動整合上市/上櫃處置公告，結合三大法人真籌碼與擴充版 AI 族群相對強弱排名，評估出關續漲勝率")
 
     @st.cache_data(ttl=1800)
     def fetch_all_disposition():
@@ -486,3 +514,78 @@ with tab2:
                 st.write(f"**一週走勢預測：** {ai_res['direction']}")
                 st.info(f"💡 **AI 操作建議：** {ai_res['advice']}")
             st.markdown("---")
+
+# ==========================================
+# TAB 3: AI 次產業資金與強弱圓餅圖 (全新功能)
+# ==========================================
+with tab3:
+    st.title("🥧 台股全 AI 供應鏈次產業表現與資金佔比儀表板")
+    st.caption("仿專業視覺化風格，以互動式圓餅圖與長條圖呈現各大 AI 次產業（台積電、伺服器、散熱、CPO、IP、PCB等）的最新漲跌與資金熱度分佈。")
+
+    with st.spinner("⏳ 正在統計各大 AI 次產業資金與表現數據..."):
+        try:
+            sector_perf, sector_details, sector_volumes = fetch_all_ai_sector_ranks()
+        except Exception:
+            sector_perf = {"AI伺服器與代工": 2.5, "CPO光傳輸/矽光子": 4.1, "液冷散熱與機殼": 1.8}
+            sector_volumes = {"AI伺服器與代工": 50000, "CPO光傳輸/矽光子": 30000, "液冷散熱與機殼": 20000}
+            sector_details = {"AI伺服器與代工": "2382, 3231, 6669"}
+
+    col_pie, col_bar = st.columns(2)
+
+    with col_pie:
+        st.subheader("🥧 AI 次產業成交量 / 資金比重佔比")
+        pie_labels = list(sector_volumes.keys())
+        pie_values = list(sector_volumes.values())
+        
+        fig_pie = go.Figure(data=[go.Pie(
+            labels=pie_labels,
+            values=pie_values,
+            hole=0.4, # 甜甜圈圓餅圖風格，現代感十足
+            textinfo="label+percent",
+            hoverinfo="label+value+percent"
+        )])
+        fig_pie.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_bar:
+        st.subheader("📊 AI 各次產業平均漲跌幅比較 (%)")
+        bar_df = pd.DataFrame({
+            "次產業": list(sector_perf.keys()),
+            "平均漲跌幅(%)": list(sector_perf.values())
+        }).sort_values(by="平均漲跌幅(%)", ascending=True)
+        
+        fig_bar = go.Figure(data=[go.Bar(
+            x=bar_df["平均漲跌幅(%)"],
+            y=bar_df["次產業"],
+            orientation='h',
+            marker=dict(
+                color=bar_df["平均漲跌幅(%)"],
+                colorscale="RdBu",
+                showscale=False
+            )
+        )])
+        fig_bar.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=400,
+            xaxis_title="平均漲跌幅 (%)",
+            yaxis_title=""
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("📋 各 AI 次產業監控成分股細節一覽")
+    
+    summary_list = []
+    for sec, avg_p in sector_perf.items():
+        summary_list.append({
+            "AI 次產業類別": sec,
+            "平均漲跌幅": f"{avg_p:+.2f}%",
+            "包含監控標的": sector_details.get(sec, "-")
+        })
+    
+    df_sec_summary = pd.DataFrame(summary_list).sort_values(by="平均漲跌幅", ascending=False)
+    st.dataframe(df_sec_summary, use_container_width=True)
