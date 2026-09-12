@@ -492,9 +492,19 @@ with tab2:
             end_date=end_date,
         )
         if df_stock_k is not None and not df_stock_k.empty:
-          st.plotly_chart(
-              draw_kline(df_stock_k, f"{sid} {sname}"), use_container_width=True
-          )
+          # 修改前：
+# st.plotly_chart(draw_kline(df_stock, f"{sid} {sname}"), use_container_width=True)
+
+# 👈 修改後：
+st.plotly_chart(
+    draw_kline(
+        df_stock,
+        f"{sid} {sname}",
+        start_dt=row["start_dt"],
+        end_dt=row["end_dt"],
+    ),
+    use_container_width=True,
+)
         else:
           st.write("暫無日 K 線數據。")
       except Exception:
