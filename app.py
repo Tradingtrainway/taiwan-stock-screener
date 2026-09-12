@@ -182,7 +182,7 @@ with tab1:
     ]
 
     col1, col2 = st.columns(2)
-    col1.metric("今日總監控標的", f"{len(df_today)} 檔")
+    col1.metric("今日總監控標的", f"{len(df_today)} 档")
     col2.metric("符合打底突破+多頭排列", f"{len(df_filtered)} 檔")
 
     st.markdown("---")
@@ -253,12 +253,12 @@ def draw_kline(df_stock, stock_id):
 
 
 # ==========================================
-# TAB 2: 處置股追蹤 (進處置第二天 & 即將出關)
+# TAB 2: 處置股追蹤 (通用動態抓取介面)
 # ==========================================
 with tab2:
   st.title("🚨 處置股精準追蹤戰情室")
   st.caption(
-      "自動監控台股交易所公佈之處置股票，追蹤「進處置第二天」與「下個交易日即將出關」之標的與日K型態"
+      "自動監控台股處置股票，追蹤「進處置第二天」與「下個交易日即將出關」之標的與日K型態"
   )
 
   dl = DataLoader()
@@ -268,71 +268,98 @@ with tab2:
 
   @st.cache_data(ttl=3600)
   def get_disposition_data():
-    try:
-      # 正確修復 API 名稱：taiwan_stock_disposition_with_margin_purchase_and_short_sale
-      df_disp = dl.taiwan_stock_disposition_with_margin_purchase_and_short_sale(
-          start_date=start_date, end_date=end_date
-      )
-      if df_disp is None or df_disp.empty:
-        return pd.DataFrame(), pd.DataFrame()
+    df_disp = pd.DataFrame()
 
-      # 欄位自動相容對照
-      date_col = (
-          "disposition_start_date"
-          if "disposition_start_date" in df_disp.columns
-          else "start_date"
-      )
-      end_date_col = (
-          "disposition_end_date"
-          if "disposition_end_date" in df_disp.columns
-          else "end_date"
-      )
+    # 自動嘗試 FinMind 支援的處置股dataset名稱
+    possible_datasets = [
+        "TaiwanStockDisposition",
+        "TaiwanStockDispositionWithMarginPurchaseAndShortSale",
+        "taiwan_stock_disposition",
+    ]
 
-      # 取得股票名稱對照
-      df_info = dl.taiwan_stock_info()
-      df_disp = pd.merge(
-          df_disp, df_info[["stock_id", "stock_name"]], on="stock_id", how="left"
-      )
+    for dataset in possible_datasets:
+      try:
+        df_disp = dl.get_data(
+            dataset=dataset, start_date=start_date, end_date=end_date
+        )
+        if df_disp is not None and not df_disp.empty:
+          break
+      except Exception:
+        continue
 
-      df_disp["start_dt"] = pd.to_datetime(df_disp[date_col])
-      df_disp["end_dt"] = pd.to_datetime(df_disp[end_date_col])
-
-      # 取得最新處置紀錄
-      df_disp_latest = (
-          df_disp.sort_values("start_dt")
-          .groupby("stock_id")
-          .last()
-          .reset_index()
-      )
-
-      today_dt = pd.to_datetime(today)
-
-      # 1. 進處置第二天 (開始日距今 1~3 天左右)
-      df_day2 = df_disp_latest[
-          (today_dt - df_disp_latest["start_dt"]).dt.days.between(1, 3)
-      ].copy()
-
-      # 2. 即將出關 (結束日距今 0~2 天左右)
-      df_exiting = df_disp_latest[
-          (df_disp_latest["end_dt"] - today_dt).dt.days.between(0, 2)
-      ].copy()
-
-      return df_day2, df_exiting
-    except Exception as e:
-      st.error(f"處置股資料抓取失敗: {e}")
+    if df_disp is None or df_disp.empty:
       return pd.DataFrame(), pd.DataFrame()
 
-  with st.spinner("⏳ 正在讀取證交所處置公告與 K 線資料..."):
-    df_day2, df_exiting = get_disposition_data()
+    # 統一欄位名稱
+    start_col = next(
+        (
+            c
+            for c in ["disposition_start_date", "start_date", "date"]
+            if c in df_disp.columns
+        ),
+        None,
+    )
+    end_col = next(
+        (
+            c
+            for c in ["disposition_end_date", "end_date"]
+            if c in df_disp.columns
+        ),
+        None,
+    )
+
+    if not start_col or not end_col:
+      return pd.DataFrame(), pd.DataFrame()
+
+    try:
+      df_info = dl.taiwan_stock_info()
+      if df_info is not None and not df_info.empty:
+        df_disp = pd.merge(
+            df_disp,
+            df_info[["stock_id", "stock_name"]],
+            on="stock_id",
+            how="left",
+        )
+    except Exception:
+      df_disp["stock_name"] = "股票"
+
+    df_disp["start_dt"] = pd.to_datetime(df_disp[start_col])
+    df_disp["end_dt"] = pd.to_datetime(df_disp[end_col])
+
+    df_disp_latest = (
+        df_disp.sort_values("start_dt")
+        .groupby("stock_id")
+        .last()
+        .reset_index()
+    )
+    today_dt = pd.to_datetime(today)
+
+    # 1. 進處置第二天 (開始日距今 1~3 天)
+    df_day2 = df_disp_latest[
+        (today_dt - df_disp_latest["start_dt"]).dt.days.between(1, 3)
+    ].copy()
+
+    # 2. 即將出關 (結束日距今 0~2 天)
+    df_exiting = df_disp_latest[
+        (df_disp_latest["end_dt"] - today_dt).dt.days.between(0, 2)
+    ].copy()
+
+    return df_day2, df_exiting
+
+  with st.spinner("⏳ 正在讀取證交所處置數據與 K 線資料..."):
+    try:
+      df_day2, df_exiting = get_disposition_data()
+    except Exception as e:
+      df_day2, df_exiting = pd.DataFrame(), pd.DataFrame()
 
   # 1. 進處置第二天專區
   st.subheader("🔥 1. 今日為「進處置第二天」之股票")
   if df_day2.empty:
-    st.info("💡 今日無剛好進入處置第二天的標的。")
+    st.info("💡 今日無剛好進入處置第二天的標的（或今日非交易日）。")
   else:
     for idx, row in df_day2.iterrows():
       sid = row["stock_id"]
-      sname = row.get("stock_name", "未知")
+      sname = row.get("stock_name", "股票")
       s_str = row["start_dt"].strftime("%Y-%m-%d")
       e_str = row["end_dt"].strftime("%Y-%m-%d")
       st.markdown(f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str})")
@@ -357,11 +384,11 @@ with tab2:
   # 2. 下個交易日即將出關專區
   st.subheader("🔓 2. 下個交易日「即將出關」之股票")
   if df_exiting.empty:
-    st.info("💡 近期無即將出關的處置股票。")
+    st.info("💡 近期無即將出關的處置股票（或今日非交易日）。")
   else:
     for idx, row in df_exiting.iterrows():
       sid = row["stock_id"]
-      sname = row.get("stock_name", "未知")
+      sname = row.get("stock_name", "股票")
       e_str = row["end_dt"].strftime("%Y-%m-%d")
       st.markdown(f"### 📌 **{sid} {sname}** (預計處置結束日：{e_str})")
 
