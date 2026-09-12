@@ -1,10 +1,10 @@
 import datetime
 import re
-import requests
-from FinMind.data import DataLoader
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
+from FinMind.data import DataLoader
 
 # 網頁頁面設定
 st.set_page_config(
@@ -224,12 +224,9 @@ with tab1:
 
 
 # ==========================================
-# 輔助函式：繪製 K 線圖
+# 輔助函式：繪製 K 線圖 (含處置開始標籤與區間遮罩)
 # ==========================================
-# ==========================================
-# 繪製 K 線圖 (新增處置當天標籤與區間渲染)
-# ==========================================
-def draw_kline(df_stock, stock_title, start_dt=None, end_dt=None):
+def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
   df_stock = df_stock.sort_values("date")
 
   fig = go.Figure(
@@ -247,7 +244,7 @@ def draw_kline(df_stock, stock_title, start_dt=None, end_dt=None):
       ]
   )
 
-  # 若有帶入處置日期資訊，進行遮罩與處置當天標籤繪製
+  # 若有處置日期資訊，進行遮罩與處置當天標籤繪製
   if pd.notna(start_dt) and pd.notna(end_dt):
     s_str = (
         start_dt.strftime("%Y-%m-%d")
@@ -294,7 +291,7 @@ def draw_kline(df_stock, stock_title, start_dt=None, end_dt=None):
       )
 
   fig.update_layout(
-      title=f"{stock_title} - K線圖",
+      title=f"代號：{stock_id} 近60日日 K 線圖 (含處置區間與當天標記)",
       xaxis_title="日期",
       yaxis_title="價格",
       xaxis_rangeslider_visible=False,
@@ -406,7 +403,7 @@ with tab2:
     except Exception:
       pass
 
-    # 3. 完整對齊與補強機制（包含 6933 AMAX-KY 新制 5 天出關、3450 聯鈞、6620 漢科、8021 尖點）
+    # 3. 完整對齊與補強機制 (包含 6933 AMAX-KY 新制 5 天出關、3450 聯鈞、6620 漢科、8021 尖點)
     fallback_records = [
         # 進處置第二天標的 (9/11開始)
         {
@@ -482,19 +479,73 @@ with tab2:
           else "未知"
       )
       st.markdown(f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str})")
-# 繪製 K 線圖區塊
-        try:
-            if df_stock is not None and not df_stock.empty:
-                st.plotly_chart(
-                    draw_kline(
-                        df_stock,
-                        f"{sid} {sname}",
-                        start_dt=row.get("start_dt"),
-                        end_dt=row.get("end_dt"),
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.warning("查無此股票之 K 線歷史資料")
-        except Exception as e:
-            st.error(f"繪製 K 線圖時發生錯誤：{e}")
+
+      try:
+        df_stock_k = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=(today - datetime.timedelta(days=90)).strftime(
+                "%Y-%m-%d"
+            ),
+            end_date=end_date,
+        )
+        if df_stock_k is not None and not df_stock_k.empty:
+          st.plotly_chart(
+              draw_kline(
+                  df_stock_k,
+                  f"{sid} {sname}",
+                  start_dt=row.get("start_dt"),
+                  end_dt=row.get("end_dt"),
+              ),
+              use_container_width=True,
+          )
+        else:
+          st.write("暫無日 K 線數據。")
+      except Exception as e:
+        st.write(f"暫無法載入該股 K 線圖：{e}")
+
+  st.markdown("---")
+
+  # 2. 下個交易日即將出關專區 (包含新制與舊制)
+  st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
+  if df_exiting.empty:
+    st.info("💡 目前無即將出關的處置股票。")
+  else:
+    for idx, row in df_exiting.iterrows():
+      sid = row["stock_id"]
+      sname = row.get("stock_name", "股票")
+      s_str = (
+          row["start_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["start_dt"])
+          else "未知"
+      )
+      e_str = (
+          row["end_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["end_dt"])
+          else "未知"
+      )
+      st.markdown(
+          f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str}，預計 **9/14 出關**)"
+      )
+
+      try:
+        df_stock_k = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=(today - datetime.timedelta(days=90)).strftime(
+                "%Y-%m-%d"
+            ),
+            end_date=end_date,
+        )
+        if df_stock_k is not None and not df_stock_k.empty:
+          st.plotly_chart(
+              draw_kline(
+                  df_stock_k,
+                  f"{sid} {sname}",
+                  start_dt=row.get("start_dt"),
+                  end_dt=row.get("end_dt"),
+              ),
+              use_container_width=True,
+          )
+        else:
+          st.write("暫無日 K 線數據。")
+      except Exception as e:
+        st.write(f"暫無法載入該股 K 線圖：{e}")
