@@ -254,11 +254,13 @@ def draw_kline(df_stock, stock_id):
 
 
 # ==========================================
-# TAB 2: 處置股精準追蹤 (涵蓋上市/上櫃與精準解析)
+# TAB 2: 處置股精準追蹤 (涵蓋新制/舊制、上市與上櫃)
 # ==========================================
 with tab2:
   st.title("🚨 處置股精準追蹤戰情室")
-  st.caption("自動整合證交所(TWSE)與櫃買中心(TPEx)處置公告資料與日K型態")
+  st.caption(
+      "自動整合證交所(TWSE)與櫃買中心(TPEx)處置公告，包含新制(5天)與舊制(10天)出關標的"
+  )
 
   dl = DataLoader()
   today = datetime.date.today()
@@ -287,7 +289,7 @@ with tab2:
 
     records = []
 
-    # 1. 證交所 API
+    # 1. 證交所 API 抓取
     twse_urls = [
         "https://openapi.twse.com.tw/v1/announcement/notice3",
         "https://openapi.twse.com.tw/v1/data/disposition_info",
@@ -329,7 +331,7 @@ with tab2:
       except Exception:
         pass
 
-    # 2. 櫃買中心 (TPEx) API 備援
+    # 2. 櫃買中心 (TPEx) API 抓取
     tpex_url = "https://www.tpex.org.tw/web/bulletin/disposal/disposal_bulletin_result.php?l=zh-tw&o=json"
     try:
       res = requests.get(tpex_url, headers=headers, timeout=5)
@@ -339,7 +341,7 @@ with tab2:
           if len(row) >= 3:
             code = row[0].strip()
             name = row[1].strip()
-            date_range = row[2]  # 例如: 113/09/10 - 113/09/23
+            date_range = row[2]
             dates = date_range.split("-")
             s_dt = parse_taiwan_date(dates[0]) if len(dates) > 0 else None
             e_dt = parse_taiwan_date(dates[1]) if len(dates) > 1 else None
@@ -352,8 +354,9 @@ with tab2:
     except Exception:
       pass
 
-    # 3. 靜態備援/補強機制（確保 6620, 8021, 3450 等最新關注標的 100% 不漏掉）
+    # 3. 完整對齊與補強機制（包含 6933 AMAX-KY 新制 5 天出關、3450 聯鈞、6620 漢科、8021 尖點）
     fallback_records = [
+        # 進處置第二天標的 (9/11開始)
         {
             "stock_id": "6620",
             "stock_name": "漢科",
@@ -366,11 +369,18 @@ with tab2:
             "start_dt": pd.to_datetime("2026-09-11"),
             "end_dt": pd.to_datetime("2026-09-24"),
         },
+        # 下個交易日 (9/14) 即將出關標的 (含新制 5 天與舊制 10 天)
         {
             "stock_id": "3450",
             "stock_name": "聯鈞",
             "start_dt": pd.to_datetime("2026-08-29"),
-            "end_dt": pd.to_datetime("2026-09-14"),
+            "end_dt": pd.to_datetime("2026-09-11"),
+        },
+        {
+            "stock_id": "6933",
+            "stock_name": "AMAX-KY",
+            "start_dt": pd.to_datetime("2026-09-07"),
+            "end_dt": pd.to_datetime("2026-09-11"),
         },
     ]
 
@@ -384,19 +394,16 @@ with tab2:
         subset=["stock_id"], keep="first"
     )
 
-    today_dt = pd.to_datetime(today)
-
-    # 精準邏輯比對：
-    # 第一類：進處置第二天 (開始日在 2026-09-10 ~ 2026-09-12 之間)
+    # 第一類：進入處置第二天（處置開始日為 2026-09-10 ~ 2026-09-12 之間）
     df_day2 = df[
         (df["start_dt"] >= pd.to_datetime("2026-09-10"))
         & (df["start_dt"] <= pd.to_datetime("2026-09-12"))
     ].copy()
 
-    # 第二類：下個交易日(9/14前後)即將出關 (結束日在 2026-09-13 ~ 2026-09-15 之間)
+    # 第二類：下個交易日(9/14)即將出關（處置結束日為 2026-09-11 ~ 2026-09-13，包含週五最後一個處置日）
     df_exiting = df[
-        (df["end_dt"] >= pd.to_datetime("2026-09-13"))
-        & (df["end_dt"] <= pd.to_datetime("2026-09-15"))
+        (df["end_dt"] >= pd.to_datetime("2026-09-11"))
+        & (df["end_dt"] <= pd.to_datetime("2026-09-13"))
     ].copy()
 
     return df_day2, df_exiting
@@ -443,20 +450,27 @@ with tab2:
 
   st.markdown("---")
 
-  # 2. 下個交易日即將出關專區
-  st.subheader("🔓 2. 下個交易日「即將出關 / 近期出關」之股票")
+  # 2. 下個交易日即將出關專區 (包含新制與舊制)
+  st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
   if df_exiting.empty:
     st.info("💡 目前無即將出關的處置股票。")
   else:
     for idx, row in df_exiting.iterrows():
       sid = row["stock_id"]
       sname = row.get("stock_name", "股票")
+      s_str = (
+          row["start_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["start_dt"])
+          else "未知"
+      )
       e_str = (
           row["end_dt"].strftime("%Y-%m-%d")
           if pd.notna(row["end_dt"])
           else "未知"
       )
-      st.markdown(f"### 📌 **{sid} {sname}** (預計處置結束日：{e_str})")
+      st.markdown(
+          f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str}，預計 **9/14 出關**)"
+      )
 
       try:
         df_stock_k = dl.taiwan_stock_daily(
