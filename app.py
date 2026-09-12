@@ -543,7 +543,7 @@ with tab2:
 # ==========================================
 with tab3:
     st.title("🗺️ 台股全 AI 與延伸供應鏈 — 次產業資金分佈與 nStock 專業熱力圖")
-    st.markdown("模擬 **nStock 專業看盤介面**：上方展示 AI 各次產業資金配置圓餅圖，下方展示漲跌即時熱力圖（紅色代表上漲、綠色代表下跌）。")
+    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖滑鼠懸停時會**直接顯示該次產業對應的所有股票代號與名稱**，下方展示漲跌即時熱力圖（紅色上漲、綠色下跌）。")
 
     with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."):
         try:
@@ -553,30 +553,39 @@ with tab3:
             sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
             sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
 
-    # 1. 建立次產業資金比重圓餅圖數據
+    # 1. 建立次產業資金比重圓餅圖數據 (包含對應股票清單)
     pie_data = []
     for sec in sector_perf.keys():
         import random
         random.seed(len(sec) + 123)
         weight_val = random.randint(15, 50)
-        pie_data.append({"Sector": sec, "Weight": weight_val})
+        stock_list_str = sector_stocks_map.get(sec, "無對應股票")
+        pie_data.append({
+            "Sector": sec, 
+            "Weight": weight_val,
+            "StockList": stock_list_str
+        })
     df_pie = pd.DataFrame(pie_data)
 
-    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈")
+    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈 (Hover 顯示對應股票)")
+    
     fig_pie = px.pie(
         df_pie, 
         names="Sector", 
         values="Weight",
+        custom_data=["StockList"], # 將股票代號與名稱清單放入 hover 變數
         hole=0.4,
         color_discrete_sequence=px.colors.qualitative.Prism
     )
+    
     fig_pie.update_traces(
         textposition='inside', 
         textinfo='percent+label',
-        hovertemplate="<b>%{label}</b><br>📦 資金權重佔比: %{percent}<extra></extra>"
+        hovertemplate="<b>📦 產業類別: %{label}</b><br>💰 資金權重佔比: %{percent}<br>────────────────────<br>📌 <b>包含股票清單:</b><br>%{customdata[0]}<extra></extra>"
     )
+    
     fig_pie.update_layout(
-        height=420,
+        height=450,
         margin=dict(l=20, r=20, t=10, b=10),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)"
