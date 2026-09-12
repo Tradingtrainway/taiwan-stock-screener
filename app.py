@@ -491,24 +491,18 @@ with tab2:
             ),
             end_date=end_date,
         )
-        if df_stock_k is not None and not df_stock_k.empty:
-          # 修改前：
-# st.plotly_chart(draw_kline(df_stock, f"{sid} {sname}"), use_container_width=True)
-
-# 👈 修改後：
-st.plotly_chart(
-    draw_kline(
-        df_stock,
-        f"{sid} {sname}",
-        start_dt=row["start_dt"],
-        end_dt=row["end_dt"],
-    ),
-    use_container_width=True,
-)
-        else:
-          st.write("暫無日 K 線數據。")
-      except Exception:
-        st.write("暫無法載入該股 K 線圖。")
+      if df_stock is not None and not df_stock.empty:
+    st.plotly_chart(
+        draw_kline(
+            df_stock,
+            f"{sid} {sname}",
+            start_dt=row.get('start_dt'),
+            end_dt=row.get('end_dt'),
+        ),
+        use_container_width=True,
+    )
+else:
+    st.warning("查無此股票之 K 線歷史資料")
 
   st.markdown("---")
 
