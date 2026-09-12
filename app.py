@@ -443,7 +443,7 @@ def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
             )
             
     fig.update_layout(
-        title=f"【{stock_info_str}】近 60 日 K 線圖 (含處置標記)",
+        title=f"【{stock_info_str}】近 60 日 K 線圖",
         xaxis_title="日期", yaxis_title="價格",
         xaxis_rangeslider_visible=False,
         height=380, margin=dict(l=20, r=20, t=40, b=20),
@@ -539,11 +539,11 @@ with tab2:
             st.markdown("---")
 
 # ==========================================
-# TAB 3: AI 次產業動能、圓餅圖與 nStock 風格美化熱力圖
+# TAB 3: AI 次產業動能、圓餅圖與 nStock 風格熱力圖 (支援點擊看走勢)
 # ==========================================
 with tab3:
     st.title("🗺️ 台股全 AI 與延伸供應鏈 — 次產業資金分佈與 nStock 專業熱力圖")
-    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖滑鼠懸停時會**直接顯示該次產業對應的所有股票代號與名稱**，下方展示漲跌即時熱力圖（紅色上漲、綠色下跌）。")
+    st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖 Hover 可看成分股，**下方熱力圖提供快速下拉選單，點選任一檔股票即可在下方直接檢視其詳細 K 線與走勢圖！**")
 
     with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."):
         try:
@@ -553,7 +553,7 @@ with tab3:
             sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
             sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
 
-    # 1. 建立次產業資金比重圓餅圖數據 (包含對應股票清單)
+    # 1. 建立次產業資金比重圓餅圖數據
     pie_data = []
     for sec in sector_perf.keys():
         import random
@@ -567,25 +567,22 @@ with tab3:
         })
     df_pie = pd.DataFrame(pie_data)
 
-    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈 (Hover 顯示對應股票)")
-    
+    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈")
     fig_pie = px.pie(
         df_pie, 
         names="Sector", 
         values="Weight",
-        custom_data=["StockList"], # 將股票代號與名稱清單放入 hover 變數
+        custom_data=["StockList"],
         hole=0.4,
         color_discrete_sequence=px.colors.qualitative.Prism
     )
-    
     fig_pie.update_traces(
         textposition='inside', 
         textinfo='percent+label',
         hovertemplate="<b>📦 產業類別: %{label}</b><br>💰 資金權重佔比: %{percent}<br>────────────────────<br>📌 <b>包含股票清單:</b><br>%{customdata[0]}<extra></extra>"
     )
-    
     fig_pie.update_layout(
-        height=450,
+        height=420,
         margin=dict(l=20, r=20, t=10, b=10),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)"
@@ -597,10 +594,12 @@ with tab3:
 
     # 2. 建立 nStock 風格全景熱力圖數據
     treemap_rows = []
+    all_available_stocks = {}
     for sec, avg_p in sector_perf.items():
         sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
         for sid in sec_stocks:
             s_disp = get_stock_display_name(sid)
+            all_available_stocks[s_disp] = sid
             
             import random
             random.seed(int(sid) + 7)
@@ -633,7 +632,7 @@ with tab3:
     
     fig_tree.update_layout(
         margin=dict(l=5, r=5, t=10, b=10),
-        height=620,
+        height=580,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         coloraxis_colorbar=dict(
@@ -645,6 +644,47 @@ with tab3:
     )
     
     st.plotly_chart(fig_tree, use_container_width=True)
+
+    # 3. 互動查詢區塊：點選/選擇熱力圖中的股票看詳細走勢圖
+    st.markdown("---")
+    st.subheader("🔍 熱力圖個股即時走勢與 K 線鑽取檢視")
+    
+    sorted_stock_options = sorted(list(all_available_stocks.keys()))
+    selected_stock_label = st.selectbox(
+        "💡 請選擇或直接輸入您想從熱力圖檢視當日走勢的標的：",
+        sorted_stock_options,
+        index=0
+    )
+    
+    if selected_stock_label:
+        sel_sid = all_available_stocks[selected_stock_label]
+        sel_ind = get_industry(sel_sid)
+        
+        col_c1, col_c2 = st.columns([1.5, 1])
+        with col_c1:
+            df_sel_stock = fetch_stock_data_robust(sel_sid)
+            st.plotly_chart(draw_kline(df_sel_stock, f"{selected_stock_label} ({sel_ind})"), use_container_width=True)
+            
+        with col_c2:
+            st.markdown(f"#### 📊 {selected_stock_label} 即時技術摘要")
+            if df_sel_stock is not None and not df_sel_stock.empty:
+                df_sorted_s = df_sel_stock.sort_values("date")
+                latest_c = df_sorted_s["close"].iloc[-1]
+                prev_c = df_sorted_s["close"].iloc[-2] if len(df_sorted_s) >= 2 else latest_c
+                chg_pct = (latest_c - prev_c) / prev_c * 100
+                ma_5 = df_sel_stock["close"].tail(5).mean()
+                ma_20 = df_sel_stock["close"].tail(20).mean() if len(df_sel_stock) >= 20 else ma_5
+                
+                st.metric("最新收盤價", f"{latest_c:.2f} 元", f"{chg_pct:+.2f}%")
+                st.write(f"**所屬 AI 次產業：** `{sel_ind}`")
+                st.write(f"**5日均線 (5MA)：** {ma_5:.2f} 元")
+                st.write(f"**20日均線 (20MA)：** {ma_20:.2f} 元")
+                if latest_c > ma_5:
+                    st.success("📈 短線多頭排列：收盤價位於 5 日均線上方。")
+                else:
+                    st.warning("📉 短線震盪整理：收盤價暫處 5 日均線下方。")
+            else:
+                st.info("目前暫無該標的之即時成交明細。")
 
     st.markdown("---")
     st.subheader("📋 各 AI 次產業監控成分股與即時表現細節一覽")
