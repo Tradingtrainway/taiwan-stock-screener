@@ -11,6 +11,46 @@ st.set_page_config(
     page_title="台股籌碼與處置股綜合戰情室", page_icon="📈", layout="wide"
 )
 
+# 產業類別對照表 (可自行擴充)
+INDUSTRY_MAP = {
+    # 處置股與重點關注股
+    "3450": "CPO光傳輸/矽光子",
+    "6933": "AI伺服器/液冷散熱",
+    "6620": "半導體廠務/設備",
+    "8021": "PCB/鑽針加工",
+    "3081": "光通訊/CPO",
+    "3163": "矽光子/光通訊",
+    "8358": "PA微波通訊",
+    "3035": "IP/ASIC矽智財",
+    "3661": "AI晶片/ASIC",
+    "2349": "LED/光電",
+    "8046": "ABF載板/PCB",
+    "6451": "光電/顯示IC",
+    "2455": "PA微波元件",
+    "3017": "伺服器散熱",
+    "2383": "CCL銅箔基板",
+    "6274": "CCL銅箔基板",
+    "3231": "AI伺服器/代工",
+    "6669": "AI伺服器/機架",
+    "3583": "半導體設備",
+    "6187": "半導體設備",
+    "3680": "半導體濕製程設備",
+    "1519": "重電/綠能",
+    "1513": "重電/變壓器",
+    "1504": "重電/馬達",
+    "3324": "散熱模組",
+    "3533": "伺服器導軌",
+    "8054": "IC設計",
+    "6176": "光學鏡頭",
+    "3363": "光通訊",
+    "6223": "IC測試介面",
+}
+
+
+def get_industry(stock_id):
+  return INDUSTRY_MAP.get(str(stock_id).strip(), "電子/半導體供應鏈")
+
+
 # 建立分頁標籤
 tab1, tab2 = st.tabs(
     ["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤 (第二天 & 即將出關)"]
@@ -43,35 +83,7 @@ with tab1:
       start_date = (today - datetime.timedelta(days=120)).strftime("%Y-%m-%d")
       end_date = today.strftime("%Y-%m-%d")
 
-      watch_list = [
-          "3081",
-          "3450",
-          "3163",
-          "8358",
-          "3035",
-          "3661",
-          "2349",
-          "8046",
-          "6451",
-          "2455",
-          "3017",
-          "2383",
-          "6274",
-          "3231",
-          "6669",
-          "3583",
-          "6187",
-          "3680",
-          "1519",
-          "1513",
-          "1504",
-          "3324",
-          "3533",
-          "8054",
-          "6176",
-          "3363",
-          "6223",
-      ]
+      watch_list = list(INDUSTRY_MAP.keys())
       all_data = []
 
       for stock_id in watch_list:
@@ -180,7 +192,7 @@ with tab1:
         & (df_today["Consolidation_Range"] <= max_cons_range)
         & (df_today["SITC_Consecutive_Days"] >= min_days)
         & (df_today["SITC_Ratio"] >= min_ratio)
-    ]
+    ].copy()
 
     col1, col2 = st.columns(2)
     col1.metric("今日總監控標的", f"{len(df_today)} 檔")
@@ -190,12 +202,15 @@ with tab1:
 
     if df_filtered.empty:
       st.info(
-          "💡 今日尚無同時符合「低檔打底 + 均線多頭排列 (Close > 5MA > 10MA >"
-          " 20MA) + 投信鎖股」的標的。"
+          "💡 今日尚無同時符合「低檔打底 + 均線多頭排列 (Close > 5MA >"
+          " 10MA > 20MA) + 投信鎖股」的標的。"
       )
     else:
+      df_filtered["Industry"] = df_filtered["StockID"].apply(get_industry)
+
       display_df = df_filtered[[
           "StockID",
+          "Industry",
           "close",
           "SITC_Buy",
           "SITC_Consecutive_Days",
@@ -204,6 +219,7 @@ with tab1:
       ]].copy()
       display_df.columns = [
           "股票代號",
+          "產業類別",
           "今日收盤價",
           "投信買超(張)",
           "投信連買天數",
@@ -224,9 +240,9 @@ with tab1:
 
 
 # ==========================================
-# 輔助函式：繪製 K 線圖 (含處置開始標籤與區間遮罩)
+# 輔助函式：繪製 K 線圖 (含產業標籤、處置開始標籤與區間遮罩)
 # ==========================================
-def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
+def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
   df_stock = df_stock.sort_values("date")
 
   fig = go.Figure(
@@ -244,7 +260,6 @@ def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
       ]
   )
 
-  # 若有處置日期資訊，進行遮罩與處置當天標籤繪製
   if pd.notna(start_dt) and pd.notna(end_dt):
     s_str = (
         start_dt.strftime("%Y-%m-%d")
@@ -257,7 +272,6 @@ def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
         else str(end_dt)[:10]
     )
 
-    # 1. 處置期間背景半透明橙黃色區間遮罩
     fig.add_vrect(
         x0=s_str,
         x1=e_str,
@@ -268,7 +282,6 @@ def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
         line_color="rgba(255, 140, 0, 0.7)",
     )
 
-    # 2. 找到處置起始當天的 K 線最高價，精準標記紅色箭頭與標籤
     df_start = df_stock[df_stock["date"] == s_str]
     if not df_start.empty:
       high_price = df_start["max"].values[0]
@@ -282,7 +295,7 @@ def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
           arrowwidth=2,
           arrowcolor="#d62728",
           ax=0,
-          ay=-35,  # 標籤上浮距離
+          ay=-35,
           font=dict(size=12, color="white"),
           bgcolor="#d62728",
           bordercolor="#d62728",
@@ -291,7 +304,7 @@ def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
       )
 
   fig.update_layout(
-      title=f"代號：{stock_id} 近60日日 K 線圖 (含處置區間與當天標記)",
+      title=f"【{stock_info_str}】近 60 日 K 線圖 (含處置標記)",
       xaxis_title="日期",
       yaxis_title="價格",
       xaxis_rangeslider_visible=False,
@@ -303,7 +316,7 @@ def draw_kline(df_stock, stock_id, start_dt=None, end_dt=None):
 
 
 # ==========================================
-# TAB 2: 處置股精準追蹤 (涵蓋新制/舊制、上市與上櫃)
+# TAB 2: 處置股精準追蹤 (涵蓋新制/舊制與產業類別)
 # ==========================================
 with tab2:
   st.title("🚨 處置股精準追蹤戰情室")
@@ -403,9 +416,8 @@ with tab2:
     except Exception:
       pass
 
-    # 3. 完整對齊與補強機制 (包含 6933 AMAX-KY 新制 5 天出關、3450 聯鈞、6620 漢科、8021 尖點)
+    # 3. 備用與關鍵標的
     fallback_records = [
-        # 進處置第二天標的 (9/11開始)
         {
             "stock_id": "6620",
             "stock_name": "漢科",
@@ -418,7 +430,6 @@ with tab2:
             "start_dt": pd.to_datetime("2026-09-11"),
             "end_dt": pd.to_datetime("2026-09-24"),
         },
-        # 下個交易日 (9/14) 即將出關標的 (含新制 5 天與舊制 10 天)
         {
             "stock_id": "3450",
             "stock_name": "聯鈞",
@@ -443,13 +454,11 @@ with tab2:
         subset=["stock_id"], keep="first"
     )
 
-    # 第一類：進入處置第二天（處置開始日為 2026-09-10 ~ 2026-09-12 之間）
     df_day2 = df[
         (df["start_dt"] >= pd.to_datetime("2026-09-10"))
         & (df["start_dt"] <= pd.to_datetime("2026-09-12"))
     ].copy()
 
-    # 第二類：下個交易日(9/14)即將出關（處置結束日為 2026-09-11 ~ 2026-09-13，包含週五最後一個處置日）
     df_exiting = df[
         (df["end_dt"] >= pd.to_datetime("2026-09-11"))
         & (df["end_dt"] <= pd.to_datetime("2026-09-13"))
@@ -468,6 +477,7 @@ with tab2:
     for idx, row in df_day2.iterrows():
       sid = row["stock_id"]
       sname = row.get("stock_name", "股票")
+      ind = get_industry(sid)
       s_str = (
           row["start_dt"].strftime("%Y-%m-%d")
           if pd.notna(row["start_dt"])
@@ -478,7 +488,9 @@ with tab2:
           if pd.notna(row["end_dt"])
           else "未知"
       )
-      st.markdown(f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str})")
+      st.markdown(
+          f"### 📌 **{sid} {sname}** `{ind}` (處置期間：{s_str} ~ {e_str})"
+      )
 
       try:
         df_stock_k = dl.taiwan_stock_daily(
@@ -492,7 +504,7 @@ with tab2:
           st.plotly_chart(
               draw_kline(
                   df_stock_k,
-                  f"{sid} {sname}",
+                  f"{sid} {sname} ({ind})",
                   start_dt=row.get("start_dt"),
                   end_dt=row.get("end_dt"),
               ),
@@ -505,7 +517,7 @@ with tab2:
 
   st.markdown("---")
 
-  # 2. 下個交易日即將出關專區 (包含新制與舊制)
+  # 2. 下個交易日即將出關專區
   st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
   if df_exiting.empty:
     st.info("💡 目前無即將出關的處置股票。")
@@ -513,6 +525,7 @@ with tab2:
     for idx, row in df_exiting.iterrows():
       sid = row["stock_id"]
       sname = row.get("stock_name", "股票")
+      ind = get_industry(sid)
       s_str = (
           row["start_dt"].strftime("%Y-%m-%d")
           if pd.notna(row["start_dt"])
@@ -524,7 +537,8 @@ with tab2:
           else "未知"
       )
       st.markdown(
-          f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str}，預計 **9/14 出關**)"
+          f"### 📌 **{sid} {sname}** `{ind}` (處置期間：{s_str} ~"
+          f" {e_str}，預計 **9/14 出關**)"
       )
 
       try:
@@ -539,7 +553,7 @@ with tab2:
           st.plotly_chart(
               draw_kline(
                   df_stock_k,
-                  f"{sid} {sname}",
+                  f"{sid} {sname} ({ind})",
                   start_dt=row.get("start_dt"),
                   end_dt=row.get("end_dt"),
               ),
