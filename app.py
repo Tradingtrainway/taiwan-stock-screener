@@ -13,33 +13,27 @@ st.set_page_config(
 
 # 聚焦純 AI 相關族群字典 (排除傳產、食品、金控、生技)
 INDUSTRY_MAP = {
-    # 1. CPO光傳輸/矽光子
     "3450": "CPO光傳輸/矽光子",
     "3081": "CPO光傳輸/矽光子",
     "3163": "CPO光傳輸/矽光子",
     "3363": "CPO光傳輸/矽光子",
-    # 2. AI伺服器/液冷散熱
     "6933": "AI伺服器/液冷散熱",
     "3017": "AI伺服器/液冷散熱",
     "3324": "AI伺服器/液冷散熱",
     "6669": "AI伺服器/液冷散熱",
     "3231": "AI伺服器/液冷散熱",
     "3533": "AI伺服器/液冷散熱",
-    # 3. 半導體廠務/設備
     "6620": "半導體廠務/設備",
     "3583": "半導體廠務/設備",
     "6187": "半導體廠務/設備",
     "3680": "半導體廠務/設備",
-    # 4. IP/ASIC矽智財
     "3035": "IP/ASIC矽智財",
     "3661": "IP/ASIC矽智財",
     "8054": "IP/ASIC矽智財",
-    # 5. PCB/鑽針/CCL
     "8021": "PCB/鑽針/CCL",
     "8046": "PCB/鑽針/CCL",
     "2383": "PCB/鑽針/CCL",
     "6274": "PCB/鑽針/CCL",
-    # 6. PA微波通訊
     "8358": "PA微波通訊",
     "2455": "PA微波通訊",
 }
@@ -49,20 +43,31 @@ def get_industry(stock_id):
   return INDUSTRY_MAP.get(str(stock_id).strip(), "AI半導體供應鏈")
 
 
+# 自動取得最新的交易日（若是週末則自動退回週五）
+def get_latest_trade_date():
+  today = datetime.date.today()
+  if today.weekday() == 5:  # 週六
+    return today - datetime.timedelta(days=1)
+  elif today.weekday() == 6:  # 週日
+    return today - datetime.timedelta(days=2)
+  return today
+
+
 # ==========================================
-# 🌐 全 AI 族群相對強弱比較與排名模組 (強/中/弱: +5 / +3 / -3)
+# 🌐 全 AI 族群相對強弱比較與排名模組 (+5 / +3 / -3)
 # ==========================================
 def analyze_ai_sector_relative_strength(target_stock_id, dl, today_str):
-  """抓取所有純 AI 族群之數據，並計算該個股所屬族群在全 AI 領域中的相對強弱排名"""
   target_ind = get_industry(target_stock_id)
-
-  # 1. 取得所有 AI 族群名稱
   all_sectors = list(set(INDUSTRY_MAP.values()))
 
   sector_perf = {}
   sector_details = {}
 
-  # 2. 計算每個 AI 族群的平均漲跌幅
+  start_fetch_dt = (
+      datetime.datetime.strptime(today_str, "%Y-%m-%d")
+      - datetime.timedelta(days=10)
+  ).strftime("%Y-%m-%d")
+
   for sec in all_sectors:
     sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
     pct_list = []
@@ -71,11 +76,7 @@ def analyze_ai_sector_relative_strength(target_stock_id, dl, today_str):
     for sid in sec_stocks:
       try:
         df_p = dl.taiwan_stock_daily(
-            stock_id=sid,
-            start_date=(
-                datetime.date.today() - datetime.timedelta(days=7)
-            ).strftime("%Y-%m-%d"),
-            end_date=today_str,
+            stock_id=sid, start_date=start_fetch_dt, end_date=today_str
         )
         if df_p is not None and len(df_p) >= 2:
           df_p = df_p.sort_values("date")
@@ -95,12 +96,10 @@ def analyze_ai_sector_relative_strength(target_stock_id, dl, today_str):
     sector_perf[sec] = avg_pct
     sector_details[sec] = " / ".join(details_list)
 
-  # 3. 進行全 AI 族群漲幅排序
   sorted_sectors = sorted(
       sector_perf.items(), key=lambda x: x[1], reverse=True
   )
 
-  # 4. 判定強 / 中 / 弱 位階
   num_sectors = len(sorted_sectors)
   rank = next(
       i for i, (sec, _) in enumerate(sorted_sectors) if sec == target_ind
@@ -135,16 +134,15 @@ def analyze_ai_sector_relative_strength(target_stock_id, dl, today_str):
 def analyze_post_disposal_ai(
     df_stock, df_inst, stock_id, stock_name, start_dt, end_dt, dl, today_str
 ):
-  """量化評估處置股出關勝率、真籌碼鎖碼度與全 AI 族群相對排名強弱"""
-  if df_stock is None or df_stock.empty or len(df_stock) < 10:
+  if df_stock is None or df_stock.empty or len(df_stock) < 5:
     return {
         "win_rate": "50%",
-        "chip_status": "資料不足",
+        "chip_status": "資料檢視中",
         "sector_info": None,
-        "direction": "資料不足，維持觀望",
+        "direction": "資料整算中",
         "support": "-",
         "resistance": "-",
-        "advice": "建議等待量能回溫後再行佈局。",
+        "advice": "建議觀望後續籌碼釋出。",
     }
 
   df_sorted = df_stock.sort_values("date").reset_index(drop=True)
@@ -163,7 +161,7 @@ def analyze_post_disposal_ai(
       else str(start_dt)[:10]
   )
 
-  # 1. 🎯 真籌碼面評分 (0 ~ 15分)
+  # 1. 真籌碼評分
   chip_score = 0
   chip_status = "↔️ 中性沉澱"
   if df_inst is not None and not df_inst.empty:
@@ -199,10 +197,10 @@ def analyze_post_disposal_ai(
       chip_score = 10
       chip_status = "📈 價格撐盤 (推估籌碼穩定)"
 
-  # 2. 🌐 全 AI 族群相對強弱比較評分 (+5 / +3 / -3 分)
+  # 2. 全 AI 族群相對強弱比較評分 (+5 / +3 / -3 分)
   sector_res = analyze_ai_sector_relative_strength(stock_id, dl, today_str)
 
-  # 3. 綜合加權評分 (基準 45 分 + 籌碼 + AI族群強弱排名 + 技術)
+  # 3. 綜合加權評分
   score = 45 + chip_score + sector_res["score_change"]
 
   if latest_close > ma5:
@@ -212,7 +210,6 @@ def analyze_post_disposal_ai(
   if latest_close >= high_60 * 0.92:
     score += 10
 
-  # 勝率與建議對照
   if score >= 82:
     win_rate = "85% (超高勝率/AI強勢族群)"
     direction = "🚀 屬AI領跑族群，爆量衝刺波段高點"
@@ -278,9 +275,11 @@ with tab1:
   def fetch_screener_data():
     try:
       dl = DataLoader()
-      today = datetime.date.today()
-      start_date = (today - datetime.timedelta(days=120)).strftime("%Y-%m-%d")
-      end_date = today.strftime("%Y-%m-%d")
+      trade_date = get_latest_trade_date()
+      start_date = (trade_date - datetime.timedelta(days=120)).strftime(
+          "%Y-%m-%d"
+      )
+      end_date = trade_date.strftime("%Y-%m-%d")
 
       watch_list = list(INDUSTRY_MAP.keys())
       all_data = []
@@ -525,8 +524,8 @@ with tab2:
   )
 
   dl = DataLoader()
-  today = datetime.date.today()
-  end_date = today.strftime("%Y-%m-%d")
+  trade_date = get_latest_trade_date()
+  end_date = trade_date.strftime("%Y-%m-%d")
 
   def parse_taiwan_date(d_str):
     if not d_str or pd.isna(d_str):
@@ -734,19 +733,14 @@ with tab2:
       df_stock_k = None
       df_inst_k = None
       try:
+        start_k_date = (trade_date - datetime.timedelta(days=90)).strftime(
+            "%Y-%m-%d"
+        )
         df_stock_k = dl.taiwan_stock_daily(
-            stock_id=sid,
-            start_date=(today - datetime.timedelta(days=90)).strftime(
-                "%Y-%m-%d"
-            ),
-            end_date=end_date,
+            stock_id=sid, start_date=start_k_date, end_date=end_date
         )
         df_inst_k = dl.taiwan_stock_institutional_investors(
-            stock_id=sid,
-            start_date=(today - datetime.timedelta(days=90)).strftime(
-                "%Y-%m-%d"
-            ),
-            end_date=end_date,
+            stock_id=sid, start_date=start_k_date, end_date=end_date
         )
       except Exception:
         pass
@@ -824,19 +818,14 @@ with tab2:
       df_stock_k = None
       df_inst_k = None
       try:
+        start_k_date = (trade_date - datetime.timedelta(days=90)).strftime(
+            "%Y-%m-%d"
+        )
         df_stock_k = dl.taiwan_stock_daily(
-            stock_id=sid,
-            start_date=(today - datetime.timedelta(days=90)).strftime(
-                "%Y-%m-%d"
-            ),
-            end_date=end_date,
+            stock_id=sid, start_date=start_k_date, end_date=end_date
         )
         df_inst_k = dl.taiwan_stock_institutional_investors(
-            stock_id=sid,
-            start_date=(today - datetime.timedelta(days=90)).strftime(
-                "%Y-%m-%d"
-            ),
-            end_date=end_date,
+            stock_id=sid, start_date=start_k_date, end_date=end_date
         )
       except Exception:
         pass
