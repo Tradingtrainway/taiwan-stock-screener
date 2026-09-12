@@ -51,18 +51,20 @@ def get_industry(stock_id):
 
 
 # ==========================================
-# 🤖 AI 處置股出關勝率與一週趨勢分析模組
+# 🤖 AI 處置股出關勝率與真籌碼鎖碼分析模組
 # ==========================================
-def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
-  """量化評估處置股出關後的勝率與一週方向"""
+def analyze_post_disposal_ai(
+    df_stock, df_inst, stock_id, stock_name, start_dt, end_dt
+):
+  """量化評估處置股出關後的勝率、一週方向與法人真籌碼鎖碼度"""
   if df_stock is None or df_stock.empty or len(df_stock) < 10:
     return {
         "win_rate": "50%",
+        "chip_status": "資料不足",
         "direction": "資料不足，維持觀望",
         "support": "-",
         "resistance": "-",
         "advice": "建議等待量能回溫後再行佈局。",
-        "status_color": "off",
     }
 
   df_sorted = df_stock.sort_values("date").reset_index(drop=True)
@@ -73,7 +75,6 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
       if len(df_sorted) >= 20
       else df_sorted["close"].mean()
   )
-
   high_60 = df_sorted["max"].max()
 
   s_str = (
@@ -81,34 +82,73 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
       if hasattr(start_dt, "strftime")
       else str(start_dt)[:10]
   )
-  df_disp = df_sorted[df_sorted["date"] >= s_str]
 
-  disp_perf = 0
-  if not df_disp.empty:
-    first_price = df_disp["open"].iloc[0]
-    last_price = df_disp["close"].iloc[-1]
-    disp_perf = (last_price - first_price) / first_price * 100
+  # ----------------------------------------------------
+  # 🎯 真籌碼面評分：分析處置期間三大法人的實際買賣超
+  # ----------------------------------------------------
+  chip_score = 0
+  chip_status = "↔️ 中性沉澱"
 
-  score = 50
+  if df_inst is not None and not df_inst.empty:
+    df_inst_disp = df_inst[df_inst["date"] >= s_str]
+    if not df_inst_disp.empty:
+      # 計算處置期間法人的總買超張數與賣超張數淨額
+      buy_vol = (
+          df_inst_disp["buy"].sum()
+          if "buy" in df_inst_disp.columns
+          else df_inst_disp.get("Trading_Money", 0)
+      )
+      sell_vol = (
+          df_inst_disp["sell"].sum() if "sell" in df_inst_disp.columns else 0
+      )
+      net_inst_buy = buy_vol - sell_vol
+
+      if net_inst_buy > 500:
+        chip_score = 15
+        chip_status = "🔥 極度鎖碼 (法人逆勢大買超)"
+      elif net_inst_buy > 0:
+        chip_score = 10
+        chip_status = "👍 籌碼穩定 (法人持續小幅加碼)"
+      elif net_inst_buy > -500:
+        chip_score = 5
+        chip_status = "↔️ 籌碼沉澱 (法人僅微幅調節)"
+      else:
+        chip_score = 0
+        chip_status = "⚠️ 籌碼鬆動 (法人處置期大賣)"
+  else:
+    # 備用邏輯：若無法人 API 資料，回歸價格抗跌推估
+    df_disp = df_sorted[df_sorted["date"] >= s_str]
+    if not df_disp.empty and (
+        df_disp["close"].iloc[-1] >= df_disp["open"].iloc[0]
+    ):
+      chip_score = 10
+      chip_status = "📈 價格撐盤 (推估籌碼穩定)"
+
+  # ----------------------------------------------------
+  # 綜合加權評分 (基準 50 分)
+  # ----------------------------------------------------
+  score = 50 + chip_score
+
   if latest_close > ma5:
     score += 15
   if ma5 > ma20:
     score += 15
-  if disp_perf > 0:
-    score += 15
   if latest_close >= high_60 * 0.92:
     score += 10
 
+  # 評語與勝率輸出
   if score >= 80:
     win_rate = "78% (高勝率偏多)"
     direction = "🚀 爆量衝刺，挑戰波段新高"
-    advice = "處置期間籌碼極度鎖定，出關首日若量能適度釋放，易啟動主升段續攻。"
+    advice = (
+        "處置期間籌碼極度鎖定，法人無懼冷卻期持續進駐，解禁後流動性釋放易啟動主升段。"
+    )
   elif score >= 65:
     win_rate = "65% (中偏多續漲)"
     direction = "📈 震盪消化賣壓後看升"
     advice = (
-        "均線維持多頭排列，出關前幾日可能會有短線獲利了結賣壓，拉回守穩"
-        " 5MA 可分批佈局。"
+        "均線維持多頭排列且籌碼穩健，短線若有出關獲利賣壓拉回，守穩 5MA"
+        " 可分批佈局。"
     )
   elif score >= 50:
     win_rate = "50% (箱型震盪)"
@@ -120,11 +160,12 @@ def analyze_post_disposal_ai(df_stock, stock_id, stock_name, start_dt, end_dt):
     win_rate = "35% (保守拉回)"
     direction = "📉 補跌震盪，回測下方均線"
     advice = (
-        "股價已跌破 5MA 與 20MA，處置解禁可能引發籌碼多頭停損，建議先觀望。"
+        "股價已跌破 5MA 與 20MA，處置期間法人有順勢調節跡象，建議先觀望。"
     )
 
   return {
       "win_rate": win_rate,
+      "chip_status": chip_status,
       "direction": direction,
       "support": f"{ma20:.1f} 元 (20MA)",
       "resistance": f"{high_60:.1f} 元 (近期高點)",
@@ -402,8 +443,8 @@ def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
 with tab2:
   st.title("🚨 處置股精準追蹤與 AI 出關勝率分析")
   st.caption(
-      "自動整合上市/上櫃處置公告，包含第 1~4"
-      " 天處置股（按天數短至長排序）與下個交易日即將出關標的"
+      "自動整合上市/上櫃處置公告，結合三大法人真籌碼數據，評估處置第 1~4"
+      " 天與即將出關股票之續漲勝率"
   )
 
   dl = DataLoader()
@@ -560,10 +601,10 @@ with tab2:
     )
 
     # 計算處置天數 (從 start_dt 至今的估算天數)
-    ref_date = pd.to_datetime("2026-09-11")  # 最新交易基準日
+    ref_date = pd.to_datetime("2026-09-11")
     df["disp_days"] = (ref_date - df["start_dt"]).dt.days + 1
 
-    # 1. 處置中股票（第 1 ~ 第 4 天，且非即將出關）：按照處置天數由短至長排序 (disp_days 遞增)
+    # 1. 處置中股票（第 1 ~ 第 4 天）：按處置天數由短至長排序
     df_active = (
         df[
             (df["start_dt"] <= ref_date)
@@ -584,7 +625,7 @@ with tab2:
     return df_active, df_exiting
 
   with st.spinner(
-      "⏳ 正在即時計算處置股票天數 (第1~4天) 與 AI 出關預測報告..."
+      "⏳ 正在即時計算處置天數與三大法人鎖碼數據..."
   ):
     df_active, df_exiting = fetch_all_disposition()
 
@@ -617,8 +658,16 @@ with tab2:
       col_chart, col_ai = st.columns([1.6, 1])
 
       df_stock_k = None
+      df_inst_k = None
       try:
         df_stock_k = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=(today - datetime.timedelta(days=90)).strftime(
+                "%Y-%m-%d"
+            ),
+            end_date=end_date,
+        )
+        df_inst_k = dl.taiwan_stock_institutional_investors(
             stock_id=sid,
             start_date=(today - datetime.timedelta(days=90)).strftime(
                 "%Y-%m-%d"
@@ -644,10 +693,16 @@ with tab2:
 
       with col_ai:
         ai_res = analyze_post_disposal_ai(
-            df_stock_k, sid, sname, row.get("start_dt"), row.get("end_dt")
+            df_stock_k,
+            df_inst_k,
+            sid,
+            sname,
+            row.get("start_dt"),
+            row.get("end_dt"),
         )
-        st.markdown("#### 🤖 AI 出關預測報告")
+        st.markdown("#### 🤖 AI 真籌碼出關預測報告")
         st.metric("出關後一週勝率", ai_res["win_rate"])
+        st.write(f"**籌碼鎖碼狀態：** {ai_res['chip_status']}")
         st.write(f"**一週走勢預測：** {ai_res['direction']}")
         st.write(
             f"**關鍵價位位階：** 壓力 `{ai_res['resistance']}` / 支撐"
@@ -685,8 +740,16 @@ with tab2:
       col_chart, col_ai = st.columns([1.6, 1])
 
       df_stock_k = None
+      df_inst_k = None
       try:
         df_stock_k = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=(today - datetime.timedelta(days=90)).strftime(
+                "%Y-%m-%d"
+            ),
+            end_date=end_date,
+        )
+        df_inst_k = dl.taiwan_stock_institutional_investors(
             stock_id=sid,
             start_date=(today - datetime.timedelta(days=90)).strftime(
                 "%Y-%m-%d"
@@ -712,10 +775,16 @@ with tab2:
 
       with col_ai:
         ai_res = analyze_post_disposal_ai(
-            df_stock_k, sid, sname, row.get("start_dt"), row.get("end_dt")
+            df_stock_k,
+            df_inst_k,
+            sid,
+            sname,
+            row.get("start_dt"),
+            row.get("end_dt"),
         )
-        st.markdown("#### 🤖 AI 出關預測報告")
+        st.markdown("#### 🤖 AI 真籌碼出關預測報告")
         st.metric("出關後一週勝率", ai_res["win_rate"])
+        st.write(f"**籌碼鎖碼狀態：** {ai_res['chip_status']}")
         st.write(f"**一週走勢預測：** {ai_res['direction']}")
         st.write(
             f"**關鍵價位位階：** 壓力 `{ai_res['resistance']}` / 支撐"
