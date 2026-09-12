@@ -150,7 +150,7 @@ def fetch_stock_data_robust(stock_id):
     except Exception:
         pass
 
-    date_list = [(datetime.date(2026, 9, 11) - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90, 0, -1)]
+    date_list = [(datetime.date(2026, 9, 13) - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90, 0, -1)]
     base_price = 100.0
     prices = []
     import random
@@ -315,7 +315,7 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
     }
 
 # 建立分頁標籤
-tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業強勢動能分佈"])
+tab1, tab2, tab3 = st.tabs(["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤與 AI 出關勝率", "🥧 AI 次產業動能與股市熱力圖"])
 
 # ==========================================
 # TAB 1: 低檔打底 + 投信鎖股策略
@@ -478,11 +478,11 @@ with tab2:
         ]
         
         df = pd.DataFrame(records)
-        ref_date = pd.to_datetime("2026-09-11")
+        ref_date = pd.to_datetime("2026-09-13")
         df["disp_days"] = (ref_date - df["start_dt"]).dt.days + 1
         
         df_active = df[(df["start_dt"] <= ref_date) & (df["end_dt"] > ref_date) & (df["disp_days"] >= 1) & (df["disp_days"] <= 4)].sort_values(by="disp_days", ascending=True).copy()
-        df_exiting = df[(df["end_dt"] >= pd.to_datetime("2026-09-11")) & (df["end_dt"] <= pd.to_datetime("2026-09-13"))].copy()
+        df_exiting = df[(df["end_dt"] >= pd.to_datetime("2026-09-11")) & (df["end_dt"] <= pd.to_datetime("2026-09-15"))].copy()
         
         return df_active, df_exiting
 
@@ -517,7 +517,7 @@ with tab2:
                 st.info(f"💡 **AI 操作建議：** {ai_res['advice']}")
             st.markdown("---")
 
-    st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
+    st.subheader("🔓 2. 近期即將出關 / 恢復正常交易之股票")
     if df_exiting.empty:
         st.info("💡 目前無即將出關的處置股票。")
     else:
@@ -526,7 +526,7 @@ with tab2:
             sname = row.get("stock_name", "股票")
             ind = get_industry(sid)
             
-            st.markdown(f"### 📌 **{sid} {sname}** `{ind}` (預計 **9/14 出關**)")
+            st.markdown(f"### 📌 **{sid} {sname}** `{ind}`")
             col_chart, col_ai = st.columns([1.6, 1])
             df_stock_k = fetch_stock_data_robust(sid)
             
@@ -546,13 +546,13 @@ with tab2:
             st.markdown("---")
 
 # ==========================================
-# TAB 3: AI 次產業強勢動能分佈 (圓餅圖附帶成分股詳細清單)
+# TAB 3: AI 次產業動能分佈 (精美環形圓餅圖 + 股市熱力圖 Treemap)
 # ==========================================
 with tab3:
-    st.title("🥧 台股全 AI 與延伸供應鏈次產業強勢動能分佈")
-    st.caption("以圓餅圖呈現各大 AI 次產業的**「多頭漲勢強弱佔比」**（滑鼠懸停可直接檢視該族群所有成分股與漲跌幅），協助直覺掌握資金聚焦在哪個最強次產業。")
+    st.title("🥧 台股全 AI 與延伸供應鏈次產業動能與熱力戰情")
+    st.caption("結合**精美多色環形圓餅圖**與**股市資金熱力圖 (Treemap)**，即時檢視各大次產業漲跌強弱與詳細成分股清單。")
 
-    with st.spinner("⏳ 正在計算全面 AI 供應鏈次產業強弱與漲跌動能..."):
+    with st.spinner("⏳ 正在計算全面 AI 供應鏈次產業強與資金熱力分佈..."):
         try:
             sector_perf, sector_details, sector_stocks_map = fetch_all_ai_sector_ranks()
         except Exception:
@@ -560,11 +560,11 @@ with tab3:
             sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
             sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
 
-    col_pie, col_bar = st.columns(2)
+    col_pie, col_map = st.columns(2)
 
     with col_pie:
-        st.subheader("🥧 AI 次產業多頭強勢動能佔比")
-        st.caption("說明：以各次產業平均正漲幅作為強弱權重。懸停於區塊可檢視該族群涵蓋的所有強勢股票清單。")
+        st.subheader("🥧 AI 次產業多頭強勢動能佔比 (美化環形圓餅圖)")
+        st.caption("提示：環形設計提升質感，懸停可直接檢視該族群所有成分股與漲跌幅。")
         
         pie_data = {k: max(v, 0.1) for k, v in sector_perf.items() if v > 0}
         if not pie_data:
@@ -578,43 +578,61 @@ with tab3:
             labels=pie_labels,
             values=pie_values,
             customdata=pie_customdata,
-            hole=0.4,
+            hole=0.5,
             textinfo="label+percent",
-            hovertemplate="<b>%{label}</b><br>動能佔比: %{percent}<br>平均漲幅: %{value:.2f}%<br><b>包含成分股清單：</b><br>%{customdata}<extra></extra>"
+            textfont=dict(size=12, color="white"),
+            marker=dict(colors=['#ff7f0e', '#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78']),
+            hovertemplate="<b>%{label}</b><br>🔥 動能佔比: %{percent}<br>📈 平均漲幅: %{value:.2f}%<br><br><b>📦 包含成分股清單：</b><br>%{customdata}<extra></extra>"
         )])
         fig_pie.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=420,
-            showlegend=False
+            margin=dict(l=10, r=10, t=20, b=20),
+            height=440,
+            showlegend=False,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
-    with col_bar:
-        st.subheader("📊 AI 各次產業平均漲跌幅比較 (%)")
-        st.caption("說明：直觀展示各大次產業（含核心與延伸擦邊族群）的多空表現與排名。")
+    with col_map:
+        st.subheader("🗺️ AI 概念族群股市熱力圖 (Treemap)")
+        st.caption("提示：區塊越大代表權重/基數越高，顏色越紅代表漲幅越強、越綠代表拉回。")
         
-        bar_df = pd.DataFrame({
-            "次產業": list(sector_perf.keys()),
-            "平均漲跌幅(%)": list(sector_perf.values())
-        }).sort_values(by="平均漲跌幅(%)", ascending=True)
+        # 建立 Treemap 用的 DataFrame
+        treemap_rows = []
+        for sec, avg_p in sector_perf.items():
+            sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
+            for sid in sec_stocks:
+                s_disp = get_stock_display_name(sid)
+                treemap_rows.append({
+                    "Sector": sec,
+                    "Stock": s_disp,
+                    "Value": 10,  # 區塊大小權重
+                    "Perf": avg_p # 用來上色
+                })
+        df_tree = pd.DataFrame(treemap_rows)
         
-        fig_bar = go.Figure(data=[go.Bar(
-            x=bar_df["平均漲跌幅(%)"],
-            y=bar_df["次產業"],
-            orientation='h',
+        fig_tree = px_treemap_chart = go.Figure(go.Treemap(
+            labels=df_tree["Stock"],
+            parents=df_tree["Sector"],
+            values=df_tree["Value"],
             marker=dict(
-                color=bar_df["平均漲跌幅(%)"],
+                colors=df_tree["Perf"],
                 colorscale="RdBu",
-                showscale=False
-            )
-        )])
-        fig_bar.update_layout(
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=420,
-            xaxis_title="平均漲跌幅 (%)",
-            yaxis_title=""
+                midpoint=0,
+                showscale=True,
+                colorbar=dict(title="漲跌幅 (%)", thickness=15, len=0.8)
+            ),
+            textinfo="label+text",
+            hovertemplate="<b>%{parent}</b> ➔ <b>%{label}</b><br>族群平均表現: %{color:.2f}%<extra></extra>"
+        ))
+        
+        fig_tree.update_layout(
+            margin=dict(l=10, r=10, t=20, b=20),
+            height=440,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_tree, use_container_width=True)
 
     st.markdown("---")
     st.subheader("📋 各 AI 次產業監控成分股與即時表現細節一覽")
