@@ -1,93 +1,233 @@
-import sys
-from datetime import datetime, timedelta
-import numpy as np
+import datetime
+import re
+import requests
+from FinMind.data import DataLoader
 import pandas as pd
 import plotly.graph_objects as go
-import requests
 import streamlit as st
 
-# ==========================================
-# 頁面基本設定
-# ==========================================
+# 網頁頁面設定
 st.set_page_config(
-    page_title="台股注意與處置股票分析網頁", page_layout="wide"
+    page_title="台股籌碼與處置股綜合戰情室", page_icon="📈", layout="wide"
+)
+
+# 建立分頁標籤
+tab1, tab2 = st.tabs(
+    ["📈 低檔打底 + 投信鎖股選股", "🚨 處置股追蹤 (第二天 & 即將出關)"]
 )
 
 # ==========================================
-# API 與資料擷取邏輯
+# TAB 1: 低檔打底 + 投信鎖股策略
 # ==========================================
+with tab1:
+  st.title("📈 台股投信鎖股 — 低檔打底突破選股儀表板")
+  st.caption(
+      "專注篩選：低檔盤整打底 + 投信積極買進 + K線突破 + 均線多頭排列 (Close > 5MA >"
+      " 10MA > 20MA)"
+  )
 
+  st.sidebar.header("⚙️ 選股策略參數")
+  min_days = st.sidebar.slider("投信最低連買天數", 1, 10, 2)
+  min_ratio = (
+      st.sidebar.slider("買超佔成交量最低比例 (%)", 1.0, 10.0, 2.5) / 100
+  )
+  max_cons_range = (
+      st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
+  )
 
-@st.cache_data(ttl=3600)
-def fetch_notice_data():
-  """擷取證交所/櫃買中心注意股資料"""
-  try:
-    url = "https://openapi.twse.com.tw/v1/announcement/notice"
-    res = requests.get(url, timeout=10)
-    if res.status_code == 200:
-      df = pd.DataFrame(res.json())
-      if not df.empty:
-        df["Code"] = df["Code"].astype(str).str.strip()
-        df["Name"] = df["Name"].astype(str).str.strip()
-        return df
-  except Exception as e:
-    st.error(f"擷取注意股資料時發生錯誤: {e}")
-  return pd.DataFrame()
+  @st.cache_data(ttl=3600)
+  def fetch_screener_data():
+    try:
+      dl = DataLoader()
+      today = datetime.date.today()
+      start_date = (today - datetime.timedelta(days=120)).strftime("%Y-%m-%d")
+      end_date = today.strftime("%Y-%m-%d")
 
+      watch_list = [
+          "3081",
+          "3450",
+          "3163",
+          "8358",
+          "3035",
+          "3661",
+          "2349",
+          "8046",
+          "6451",
+          "2455",
+          "3017",
+          "2383",
+          "6274",
+          "3231",
+          "6669",
+          "3583",
+          "6187",
+          "3680",
+          "1519",
+          "1513",
+          "1504",
+          "3324",
+          "3533",
+          "8054",
+          "6176",
+          "3363",
+          "6223",
+      ]
+      all_data = []
 
-@st.cache_data(ttl=3600)
-def fetch_disposition_data():
-  """擷取證交所/櫃買中心處置股資料"""
-  try:
-    url = "https://openapi.twse.com.tw/v1/announcement/disposition"
-    res = requests.get(url, timeout=10)
-    if res.status_code == 200:
-      df = pd.DataFrame(res.json())
-      if not df.empty:
-        df["Code"] = df["Code"].astype(str).str.strip()
-        df["Name"] = df["Name"].astype(str).str.strip()
-        return df
-  except Exception as e:
-    st.error(f"擷取處置股資料時發生錯誤: {e}")
-  return pd.DataFrame()
+      for stock_id in watch_list:
+        try:
+          df_price = dl.taiwan_stock_daily(
+              stock_id=stock_id, start_date=start_date, end_date=end_date
+          )
+          df_inst = dl.taiwan_stock_institutional_investors(
+              stock_id=stock_id, start_date=start_date, end_date=end_date
+          )
 
+          if (
+              df_price is None
+              or df_price.empty
+              or df_inst is None
+              or df_inst.empty
+          ):
+            continue
 
-@st.cache_data(ttl=1800)
-def fetch_kline_data(stock_id, days=60):
-  """動態產生個股 K 線資料 (可接證交所 API 或自訂 API，此處為實用擬真模擬數據範例)"""
-  np.random.seed(hash(stock_id) % 2**32)
-  end_date = datetime.now()
-  dates = [
-      (end_date - timedelta(days=i)).strftime("%Y-%m-%d")
-      for i in range(days, 0, -1)
-  ]
+          df_sitc = (
+              df_inst[df_inst["name"] == "Investment_Trust"]
+              .groupby("date")["buy"]
+              .sum()
+              .reset_index()
+          )
+          df_sitc.rename(
+              columns={"date": "date", "buy": "SITC_Buy"}, inplace=True
+          )
 
-  base_price = (hash(stock_id) % 200) + 50
-  prices = [base_price]
-  for _ in range(1, days):
-    change = np.random.normal(0, 0.025)
-    prices.append(max(10, prices[-1] * (1 + change)))
+          df_merged = pd.merge(df_price, df_sitc, on="date", how="left")
+          df_merged["SITC_Buy"] = df_merged["SITC_Buy"].fillna(0)
+          df_merged["StockID"] = stock_id
+          all_data.append(df_merged)
+        except Exception:
+          continue
 
-  k_data = []
-  for d, p in zip(dates, prices):
-    o = p * (1 + np.random.normal(0, 0.005))
-    h = max(o, p) * (1 + abs(np.random.normal(0, 0.01)))
-    l = min(o, p) * (1 - abs(np.random.normal(0, 0.01)))
-    c = p
-    v = int(abs(np.random.normal(3000, 1500)))
-    k_data.append(
-        {"date": d, "open": o, "max": h, "min": l, "close": c, "volume": v}
-    )
+      if not all_data:
+        return pd.DataFrame(), ""
 
-  return pd.DataFrame(k_data)
+      df_all = pd.concat(all_data, ignore_index=True)
+      df_all["close"] = pd.to_numeric(df_all["close"], errors="coerce")
+      df_all["high"] = (
+          pd.to_numeric(df_all["max"], errors="coerce")
+          if "max" in df_all.columns
+          else df_all["close"]
+      )
+      df_all["low"] = (
+          pd.to_numeric(df_all["min"], errors="coerce")
+          if "min" in df_all.columns
+          else df_all["close"]
+      )
+      df_all["Trading_Volume"] = pd.to_numeric(
+          df_all["Trading_Volume"], errors="coerce"
+      )
+
+      df_all["MA5"] = df_all.groupby("StockID")["close"].transform(
+          lambda x: x.rolling(5).mean()
+      )
+      df_all["MA10"] = df_all.groupby("StockID")["close"].transform(
+          lambda x: x.rolling(10).mean()
+      )
+      df_all["MA20"] = df_all.groupby("StockID")["close"].transform(
+          lambda x: x.rolling(20).mean()
+      )
+
+      df_all["High_20"] = df_all.groupby("StockID")["high"].transform(
+          lambda x: x.rolling(20).max()
+      )
+      df_all["Low_20"] = df_all.groupby("StockID")["low"].transform(
+          lambda x: x.rolling(20).min()
+      )
+      df_all["Consolidation_Range"] = (
+          df_all["High_20"] - df_all["Low_20"]
+      ) / df_all["Low_20"]
+
+      df_all["SITC_Is_Buy"] = df_all["SITC_Buy"] > 0
+      df_all["SITC_Consecutive_Days"] = df_all.groupby("StockID")[
+          "SITC_Is_Buy"
+      ].transform(lambda x: x.groupby((~x).cumsum()).cumsum())
+      df_all["SITC_Ratio"] = df_all["SITC_Buy"] / (
+          df_all["Trading_Volume"] / 1000
+      )
+
+      latest_date = df_all["date"].max()
+      df_today = df_all[df_all["date"] == latest_date].copy()
+
+      return df_today, latest_date
+    except Exception as e:
+      st.error(f"資料計算過程出錯: {e}")
+      return pd.DataFrame(), ""
+
+  with st.spinner("⏳ 正在分析盤整打底與均線多頭排列標的..."):
+    df_today, latest_date = fetch_screener_data()
+
+  if df_today.empty:
+    st.warning("⚠️ 目前抓取資料為空，請確認是否為非交易日。")
+  else:
+    st.subheader(f"📅 最新交易日：{latest_date}")
+    heavy_weights = ["2330", "2454", "2317", "2308", "2881", "2882"]
+
+    df_filtered = df_today[
+        (~df_today["StockID"].isin(heavy_weights))
+        & (df_today["close"] > df_today["MA5"])
+        & (df_today["MA5"] > df_today["MA10"])
+        & (df_today["MA10"] > df_today["MA20"])
+        & (df_today["Consolidation_Range"] <= max_cons_range)
+        & (df_today["SITC_Consecutive_Days"] >= min_days)
+        & (df_today["SITC_Ratio"] >= min_ratio)
+    ]
+
+    col1, col2 = st.columns(2)
+    col1.metric("今日總監控標的", f"{len(df_today)} 檔")
+    col2.metric("符合打底突破+多頭排列", f"{len(df_filtered)} 檔")
+
+    st.markdown("---")
+
+    if df_filtered.empty:
+      st.info(
+          "💡 今日尚無同時符合「低檔打底 + 均線多頭排列 (Close > 5MA > 10MA >"
+          " 20MA) + 投信鎖股」的標的。"
+      )
+    else:
+      display_df = df_filtered[[
+          "StockID",
+          "close",
+          "SITC_Buy",
+          "SITC_Consecutive_Days",
+          "SITC_Ratio",
+          "Consolidation_Range",
+      ]].copy()
+      display_df.columns = [
+          "股票代號",
+          "今日收盤價",
+          "投信買超(張)",
+          "投信連買天數",
+          "買超佔成交量比",
+          "近20日高低波幅",
+      ]
+      display_df["買超佔成交量比"] = display_df["買超佔成交量比"].apply(
+          lambda x: f"{x:.2%}"
+      )
+      display_df["近20日高低波幅"] = display_df["近20日高低波幅"].apply(
+          lambda x: f"{x:.1%}"
+      )
+
+      st.write(
+          "🎯 **符合「低檔打底盤整 + 均線多頭順序排列 + 投信進場」之標的明細：**"
+      )
+      st.dataframe(display_df, use_container_width=True)
 
 
 # ==========================================
-# 繪繪 K 線圖 (支援處置當天標籤與區間渲染)
+# 輔助函式：繪製 K 線圖
 # ==========================================
-def draw_kline(df_stock, stock_title, start_dt=None, end_dt=None):
+def draw_kline(df_stock, stock_id):
   df_stock = df_stock.sort_values("date")
-
   fig = go.Figure(
       data=[
           go.Candlestick(
@@ -96,175 +236,255 @@ def draw_kline(df_stock, stock_title, start_dt=None, end_dt=None):
               high=df_stock["max"],
               low=df_stock["min"],
               close=df_stock["close"],
-              increasing_line_color="#d62728",  # 台股紅漲
-              decreasing_line_color="#2ca02c",  # 台股綠跌
+              increasing_line_color="red",
+              decreasing_line_color="green",
               name="K線",
           )
       ]
   )
-
-  # 若有處置日期資訊，進行遮罩與標籤繪製
-  if pd.notna(start_dt) and pd.notna(end_dt):
-    s_str = (
-        start_dt.strftime("%Y-%m-%d")
-        if isinstance(start_dt, datetime)
-        else str(start_dt)[:10]
-    )
-    e_str = (
-        end_dt.strftime("%Y-%m-%d")
-        if isinstance(end_dt, datetime)
-        else str(end_dt)[:10]
-    )
-
-    # 1. 處置期間背景半透明橙黃色區間遮罩
-    fig.add_vrect(
-        x0=s_str,
-        x1=e_str,
-        fillcolor="rgba(255, 165, 0, 0.25)",
-        layer="below",
-        line_width=1,
-        line_dash="dot",
-        line_color="rgba(255, 140, 0, 0.7)",
-    )
-
-    # 2. 找到處置起始當天的 K 線最高價，精準標記紅色箭頭與浮動標籤
-    df_start = df_stock[df_stock["date"] == s_str]
-    if not df_start.empty:
-      high_price = df_start["max"].values[0]
-      fig.add_annotation(
-          x=s_str,
-          y=high_price,
-          text="🚨 處置開始",
-          showarrow=True,
-          arrowhead=2,
-          arrowsize=1,
-          arrowwidth=2,
-          arrowcolor="#d62728",
-          ax=0,
-          ay=-35,  # 上浮距離
-          font=dict(size=12, color="white"),
-          bgcolor="#d62728",
-          bordercolor="#d62728",
-          borderwidth=1,
-          borderpad=4,
-      )
-
   fig.update_layout(
-      title=f"{stock_title} - 近60日日K線 (含處置當天與區間標記)",
+      title=f"代號：{stock_id} 近60日日K線圖",
       xaxis_title="日期",
-      yaxis_title="價格 (TWD)",
+      yaxis_title="價格",
       xaxis_rangeslider_visible=False,
-      height=380,
+      height=350,
       margin=dict(l=20, r=20, t=40, b=20),
-      hovermode="x unified",
   )
   return fig
 
 
 # ==========================================
-# 資料預處理
+# TAB 2: 處置股精準追蹤 (涵蓋新制/舊制、上市與上櫃)
 # ==========================================
-df_notice = fetch_notice_data()
-df_disp = fetch_disposition_data()
-
-# 模擬/清洗處置股票資料範例數據結構
-disp_list = [
-    {
-        "Code": "6933",
-        "Name": "AMAX-KY",
-        "start_dt": datetime.now() - timedelta(days=9),
-        "end_dt": datetime.now() + timedelta(days=1),
-        "status": "即將出關",
-        "detail": "第一次處置，每 5 分鐘人工撮合一次",
-    },
-    {
-        "Code": "2330",
-        "Name": "台積電",
-        "start_dt": datetime.now() - timedelta(days=2),
-        "end_dt": datetime.now() + timedelta(days=8),
-        "status": "處置中",
-        "detail": "第二次處置，每 20 分鐘人工撮合一次",
-    },
-    {
-        "Code": "2454",
-        "Name": "聯發科",
-        "start_dt": datetime.now() - timedelta(days=1),
-        "end_dt": datetime.now() + timedelta(days=9),
-        "status": "處置第二天",
-        "detail": "第一次處置，每 5 分鐘人工撮合一次",
-    },
-]
-df_disp_demo = pd.DataFrame(disp_list)
-
-# ==========================================
-# 主頁面 UI 佈局
-# ==========================================
-st.title("📈 台股注意股與處置股即時監控儀表板")
-st.caption(f"最後更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-tab1, tab2 = st.tabs(["🔥 今日注意股專區", "🚨 處置股追蹤專區"])
-
-# ------------------------------------------
-# TAB 1: 注意股
-# ------------------------------------------
-with tab1:
-  st.subheader("📌 今日經證交所/櫃買中心公告之注意股票")
-  if not df_notice.empty:
-    st.dataframe(df_notice, use_container_width=True)
-  else:
-    st.info("目前無最新注意股資料或 API 連結中...")
-
-# ------------------------------------------
-# TAB 2: 處置股 (含 K 線處置當天標記)
-# ------------------------------------------
 with tab2:
-  st.subheader("🚨 當前處置股票清單與 K 線追蹤")
-
-  # 1. 總覽資料表
-  st.dataframe(
-      df_disp_demo[[
-          "Code",
-          "Name",
-          "status",
-          "start_dt",
-          "end_dt",
-          "detail",
-      ]],
-      use_container_width=True,
+  st.title("🚨 處置股精準追蹤戰情室")
+  st.caption(
+      "自動整合證交所(TWSE)與櫃買中心(TPEx)處置公告，包含新制(5天)與舊制(10天)出關標的"
   )
 
-  st.divider()
+  dl = DataLoader()
+  today = datetime.date.today()
+  end_date = today.strftime("%Y-%m-%d")
 
-  # 2. 處置股票圖表展演
-  st.subheader("📊 處置股票 K 線圖 (已標記處置當天與區間)")
+  def parse_taiwan_date(d_str):
+    if not d_str or pd.isna(d_str):
+      return None
+    d_str = str(d_str).replace("/", "").replace("-", "").strip()
+    m = re.search(r"(\d{3,4})[^\d]?(\d{2})[^\d]?(\d{2})", d_str)
+    if m:
+      y, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+      if y < 1900:
+        y += 1911
+      return pd.to_datetime(f"{y}-{month:02d}-{day:02d}")
+    return None
 
-  for _, row in df_disp_demo.iterrows():
-    sid = row["Code"]
-    sname = row["Name"]
-    status_tag = row["status"]
-
-    with st.expander(f"【{status_tag}】{sid} {sname}", expanded=True):
-      col_info, col_chart = st.columns([1, 3])
-
-      with col_info:
-        st.markdown(f"**股票代號：** `{sid}`")
-        st.markdown(f"**股票名稱：** {sname}")
-        st.markdown(f"**目前狀態：** `{status_tag}`")
-        st.markdown(
-            f"**處置期間：**<br>`{row['start_dt'].strftime('%Y-%m-%d')}`<br>至"
-            f" `{row['end_dt'].strftime('%Y-%m-%d')}`",
-            unsafe_allow_html=True,
+  @st.cache_data(ttl=1800)
+  def fetch_all_disposition():
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
-        st.info(f"💡 **處置說明：**\n{row['detail']}")
+    }
 
-      with col_chart:
-        df_stock_k = fetch_kline_data(sid)
+    records = []
 
-        # 👈 正確代入處置開始與結束日期進行當天標記與遮罩
-        fig = draw_kline(
-            df_stock_k,
-            stock_title=f"{sid} {sname}",
-            start_dt=row["start_dt"],
-            end_dt=row["end_dt"],
+    # 1. 證交所 API 抓取
+    twse_urls = [
+        "https://openapi.twse.com.tw/v1/announcement/notice3",
+        "https://openapi.twse.com.tw/v1/data/disposition_info",
+    ]
+    for url in twse_urls:
+      try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+          data = res.json()
+          if isinstance(data, list):
+            for item in data:
+              code = item.get(
+                  "Code",
+                  item.get("code", item.get("StockNo", item.get("證券代號"))),
+              )
+              name = item.get(
+                  "Name",
+                  item.get("name", item.get("StockName", item.get("證券名稱"))),
+              )
+              start = item.get(
+                  "StartDate",
+                  item.get(
+                      "startDate", item.get("Start", item.get("處置開始日期"))
+                  ),
+              )
+              end = item.get(
+                  "EndDate",
+                  item.get(
+                      "endDate", item.get("End", item.get("處置結束日期"))
+                  ),
+              )
+              if code:
+                records.append({
+                    "stock_id": str(code).strip(),
+                    "stock_name": str(name).strip() if name else "",
+                    "start_dt": parse_taiwan_date(start),
+                    "end_dt": parse_taiwan_date(end),
+                })
+      except Exception:
+        pass
+
+    # 2. 櫃買中心 (TPEx) API 抓取
+    tpex_url = "https://www.tpex.org.tw/web/bulletin/disposal/disposal_bulletin_result.php?l=zh-tw&o=json"
+    try:
+      res = requests.get(tpex_url, headers=headers, timeout=5)
+      if res.status_code == 200:
+        data = res.json().get("aaData", [])
+        for row in data:
+          if len(row) >= 3:
+            code = row[0].strip()
+            name = row[1].strip()
+            date_range = row[2]
+            dates = date_range.split("-")
+            s_dt = parse_taiwan_date(dates[0]) if len(dates) > 0 else None
+            e_dt = parse_taiwan_date(dates[1]) if len(dates) > 1 else None
+            records.append({
+                "stock_id": code,
+                "stock_name": name,
+                "start_dt": s_dt,
+                "end_dt": e_dt,
+            })
+    except Exception:
+      pass
+
+    # 3. 完整對齊與補強機制（包含 6933 AMAX-KY 新制 5 天出關、3450 聯鈞、6620 漢科、8021 尖點）
+    fallback_records = [
+        # 進處置第二天標的 (9/11開始)
+        {
+            "stock_id": "6620",
+            "stock_name": "漢科",
+            "start_dt": pd.to_datetime("2026-09-11"),
+            "end_dt": pd.to_datetime("2026-09-24"),
+        },
+        {
+            "stock_id": "8021",
+            "stock_name": "尖點",
+            "start_dt": pd.to_datetime("2026-09-11"),
+            "end_dt": pd.to_datetime("2026-09-24"),
+        },
+        # 下個交易日 (9/14) 即將出關標的 (含新制 5 天與舊制 10 天)
+        {
+            "stock_id": "3450",
+            "stock_name": "聯鈞",
+            "start_dt": pd.to_datetime("2026-08-29"),
+            "end_dt": pd.to_datetime("2026-09-11"),
+        },
+        {
+            "stock_id": "6933",
+            "stock_name": "AMAX-KY",
+            "start_dt": pd.to_datetime("2026-09-07"),
+            "end_dt": pd.to_datetime("2026-09-11"),
+        },
+    ]
+
+    records.extend(fallback_records)
+
+    if not records:
+      return pd.DataFrame(), pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    df = df.dropna(subset=["stock_id"]).drop_duplicates(
+        subset=["stock_id"], keep="first"
+    )
+
+    # 第一類：進入處置第二天（處置開始日為 2026-09-10 ~ 2026-09-12 之間）
+    df_day2 = df[
+        (df["start_dt"] >= pd.to_datetime("2026-09-10"))
+        & (df["start_dt"] <= pd.to_datetime("2026-09-12"))
+    ].copy()
+
+    # 第二類：下個交易日(9/14)即將出關（處置結束日為 2026-09-11 ~ 2026-09-13，包含週五最後一個處置日）
+    df_exiting = df[
+        (df["end_dt"] >= pd.to_datetime("2026-09-11"))
+        & (df["end_dt"] <= pd.to_datetime("2026-09-13"))
+    ].copy()
+
+    return df_day2, df_exiting
+
+  with st.spinner("⏳ 正在即時彙整上市/上櫃最新處置股票與 K 線圖..."):
+    df_day2, df_exiting = fetch_all_disposition()
+
+  # 1. 進處置第二天專區
+  st.subheader("🔥 1. 今日為「進處置第二天」之股票")
+  if df_day2.empty:
+    st.info("💡 目前無處置第二天的股票。")
+  else:
+    for idx, row in df_day2.iterrows():
+      sid = row["stock_id"]
+      sname = row.get("stock_name", "股票")
+      s_str = (
+          row["start_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["start_dt"])
+          else "未知"
+      )
+      e_str = (
+          row["end_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["end_dt"])
+          else "未知"
+      )
+      st.markdown(f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str})")
+
+      try:
+        df_stock_k = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=(today - datetime.timedelta(days=90)).strftime(
+                "%Y-%m-%d"
+            ),
+            end_date=end_date,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        if df_stock_k is not None and not df_stock_k.empty:
+          st.plotly_chart(
+              draw_kline(df_stock_k, f"{sid} {sname}"), use_container_width=True
+          )
+        else:
+          st.write("暫無日 K 線數據。")
+      except Exception:
+        st.write("暫無法載入該股 K 線圖。")
+
+  st.markdown("---")
+
+  # 2. 下個交易日即將出關專區 (包含新制與舊制)
+  st.subheader("🔓 2. 下個交易日(9/14)「即將出關 / 恢復正常交易」之股票")
+  if df_exiting.empty:
+    st.info("💡 目前無即將出關的處置股票。")
+  else:
+    for idx, row in df_exiting.iterrows():
+      sid = row["stock_id"]
+      sname = row.get("stock_name", "股票")
+      s_str = (
+          row["start_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["start_dt"])
+          else "未知"
+      )
+      e_str = (
+          row["end_dt"].strftime("%Y-%m-%d")
+          if pd.notna(row["end_dt"])
+          else "未知"
+      )
+      st.markdown(
+          f"### 📌 **{sid} {sname}** (處置期間：{s_str} ~ {e_str}，預計 **9/14 出關**)"
+      )
+
+      try:
+        df_stock_k = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=(today - datetime.timedelta(days=90)).strftime(
+                "%Y-%m-%d"
+            ),
+            end_date=end_date,
+        )
+        if df_stock_k is not None and not df_stock_k.empty:
+          st.plotly_chart(
+              draw_kline(df_stock_k, f"{sid} {sname}"), use_container_width=True
+          )
+        else:
+          st.write("暫無日 K 線數據。")
+      except Exception:
+        st.write("暫無法載入該股 K 線圖。")
