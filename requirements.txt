@@ -1,5 +1,5 @@
 streamlit
-finmind
 pandas
 numpy
-requests
+FinMind
+plotly
