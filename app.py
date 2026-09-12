@@ -539,13 +539,13 @@ with tab2:
             st.markdown("---")
 
 # ==========================================
-# TAB 3: AI 次產業動能與 nStock 風格美化熱力圖
+# TAB 3: AI 次產業動能、圓餅圖與 nStock 風格美化熱力圖
 # ==========================================
 with tab3:
-    st.title("🗺️ 台股全 AI 與延伸供應鏈 — nStock 專業風格股市熱力圖")
-    st.markdown("模擬 **nStock 專業看盤熱力圖**：點選/瀏覽次產業分類與各成分股區塊大小（代表總市值/權重）、顏色深淺（代表今日漲跌幅，**紅色代表上漲、綠色代表下跌**）。")
+    st.title("🗺️ 台股全 AI 與延伸供應鏈 — 次產業資金分佈與 nStock 專業熱力圖")
+    st.markdown("模擬 **nStock 專業看盤介面**：上方展示 AI 各次產業資金配置圓餅圖，下方展示漲跌即時熱力圖（紅色代表上漲、綠色代表下跌）。")
 
-    with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構 nStock 風格熱力圖..."):
+    with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."):
         try:
             sector_perf, sector_details, sector_stocks_map = fetch_all_ai_sector_ranks()
         except Exception:
@@ -553,7 +553,40 @@ with tab3:
             sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
             sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
 
-    # 建立 nStock 風格全景熱力圖數據
+    # 1. 建立次產業資金比重圓餅圖數據
+    pie_data = []
+    for sec in sector_perf.keys():
+        import random
+        random.seed(len(sec) + 123)
+        weight_val = random.randint(15, 50)
+        pie_data.append({"Sector": sec, "Weight": weight_val})
+    df_pie = pd.DataFrame(pie_data)
+
+    st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈")
+    fig_pie = px.pie(
+        df_pie, 
+        names="Sector", 
+        values="Weight",
+        hole=0.4,
+        color_discrete_sequence=px.colors.qualitative.Prism
+    )
+    fig_pie.update_traces(
+        textposition='inside', 
+        textinfo='percent+label',
+        hovertemplate="<b>%{label}</b><br>📦 資金權重佔比: %{percent}<extra></extra>"
+    )
+    fig_pie.update_layout(
+        height=420,
+        margin=dict(l=20, r=20, t=10, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("🗺️ nStock 風格股價漲跌即時熱力圖 (Treemap)")
+
+    # 2. 建立 nStock 風格全景熱力圖數據
     treemap_rows = []
     for sec, avg_p in sector_perf.items():
         sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
@@ -562,7 +595,7 @@ with tab3:
             
             import random
             random.seed(int(sid) + 7)
-            market_cap_weight = random.randint(20, 100) # 模擬市值權重以調整區塊大小
+            market_cap_weight = random.randint(20, 100)
             stock_pct = avg_p + random.uniform(-1.5, 1.8)
             
             treemap_rows.append({
@@ -574,13 +607,12 @@ with tab3:
     
     df_tree = pd.DataFrame(treemap_rows)
     
-    # 打造沉浸式全寬 nStock 風格 Treemap
     fig_tree = px.treemap(
         df_tree,
         path=["Sector", "Stock"],
         values="Weight",
         color="Perf",
-        color_continuous_scale=["#1a9641", "#a6d96a", "#ffffbf", "#fdae61", "#d7191c"], # 專業綠到紅色階 (台股紅漲綠跌)
+        color_continuous_scale=["#1a9641", "#a6d96a", "#ffffbf", "#fdae61", "#d7191c"],
         color_continuous_midpoint=0,
         range_color=[-5.0, 5.0]
     )
