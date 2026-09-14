@@ -98,7 +98,7 @@ def fetch_stock_data_robust(stock_id):
     except Exception:
         pass
 
-    date_list = [(datetime.date(2026, 9, 13) - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90, 0, -1)]
+    date_list = [(datetime.date(2026, 9, 15) - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90, 0, -1)]
     base_price = 100.0
     prices = []
     import random
@@ -117,12 +117,13 @@ def fetch_stock_data_robust(stock_id):
         "Trading_Volume": [2000 + int(p * 10) for p in prices]
     })
 
-# 建立 4 個精簡分頁標籤
-tab1, tab2, tab3, tab4 = st.tabs([
+# ==========================================
+# 📂 建立原汁原味的 3 個核心分頁
+# ==========================================
+tab1, tab2, tab3 = st.tabs([
     "📈 低檔打底選股", 
     "🚨 處置股追蹤", 
-    "股市熱力圖", 
-    "🌟 每日多維度核心選股"
+    "股市熱力圖"
 ])
 
 # ==========================================
@@ -181,87 +182,3 @@ with tab3:
     )
     fig_tree.update_layout(height=550)
     st.plotly_chart(fig_tree, use_container_width=True)
-
-# ==========================================
-# TAB 4: 每日多維度核心選股儀表板 (四條件過濾)
-# ==========================================
-with tab4:
-    st.title("🌟 每日多維度核心選股儀表板")
-    st.markdown("""
-    本模組針對台股主流供應鏈進行每日綜合掃描，嚴格檢視以下 **4 大核心條件**：
-    1. 🧠 **內部人持股變化增加**（內部人籌碼鎖定或增持）
-    2. 📈 **近期公司營收成長**（營收動能向上）
-    3. 💰 **EPS 趨勢增加**（獲利能力持續成長）
-    4. 🌐 **主流產業景氣樂觀**（屬於AI、半導體、高速傳輸等樂觀族群）
-    
-    * **篩選規則**：同時符合 **4 項** 者列為核心首選（🔥）；符合 **3 項** 者列為次選標的（⚠️ 並標記缺少的條件）。
-    """)
-
-    @st.cache_data(ttl=3600)
-    def run_multi_factor_screener():
-        results = []
-        for sid, ind_name in INDUSTRY_MAP.items():
-            sname = STOCK_NAMES.get(sid, "個股")
-            
-            import random
-            random.seed(int(sid) + 99)
-            
-            c1_insider = random.choice([True, True, False])
-            c2_revenue = random.choice([True, True, True, False])
-            c3_eps = random.choice([True, True, False])
-            c4_industry = True
-            
-            conditions = [
-                ("內部人增持", c1_insider),
-                ("營收成長", c2_revenue),
-                ("EPS增加", c3_eps),
-                ("主流產業樂觀", c4_industry)
-            ]
-            
-            true_count = sum(1 for _, val in conditions if val)
-            missing_items = [name for name, val in conditions if not val]
-            
-            df_price = fetch_stock_data_robust(sid)
-            latest_close = float(df_price["close"].iloc[-1]) if df_price is not None and not df_price.empty else 100.0
-            
-            if true_count >= 3:
-                results.append({
-                    "stock_id": sid,
-                    "stock_name": f"{sid} {sname}",
-                    "industry": ind_name,
-                    "latest_close": latest_close,
-                    "match_count": true_count,
-                    "status": "🔥 4項全壘打 (核心首選)" if true_count == 4 else f"⚠️ 符合3項 (缺: {','.join(missing_items)})",
-                    "c1": "✅" if c1_insider else "❌",
-                    "c2": "✅" if c2_revenue else "❌",
-                    "c3": "✅" if c3_eps else "❌",
-                    "c4": "✅" if c4_industry else "❌"
-                })
-                
-        return pd.DataFrame(results)
-
-    with st.spinner("⏳ 正在執行多維度基本面與籌碼條件過濾運算..."):
-        df_screen = run_multi_factor_screener()
-
-    if df_screen.empty:
-        st.info("💡 目前無符合條件的標的。")
-    else:
-        df_4 = df_screen[df_screen["match_count"] == 4].copy()
-        df_3 = df_screen[df_screen["match_count"] == 3].copy()
-        
-        st.subheader("🔥 1. 四項條件全壘打標的 (核心首選)")
-        if df_4.empty:
-            st.info("💡 今日暫無同時符合 4 項條件的標的。")
-        else:
-            display_4 = df_4[["stock_name", "industry", "latest_close", "status", "c1", "c2", "c3", "c4"]].copy()
-            display_4.columns = ["股票", "產業類別", "最新收盤價", "評級狀態", "內部人增持", "營收成長", "EPS增加", "產業樂觀"]
-            st.dataframe(display_4, use_container_width=True)
-            
-        st.markdown("---")
-        st.subheader("⚠️ 2. 符合三項條件標的 (次選與狀態標記)")
-        if df_3.empty:
-            st.info("💡 目前無三項符合標的。")
-        else:
-            display_3 = df_3[["stock_name", "industry", "latest_close", "status", "c1", "c2", "c3", "c4"]].copy()
-            display_3.columns = ["股票", "產業類別", "最新收盤價", "評級狀態與缺少項目", "內部人增持", "營收成長", "EPS增加", "產業樂觀"]
-            st.dataframe(display_3, use_container_width=True)
