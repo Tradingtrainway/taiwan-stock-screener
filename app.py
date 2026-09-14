@@ -1,5 +1,6 @@
+import numpy as np
 import pandas as pd
-import plotly.express as go_plotly
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
@@ -8,24 +9,43 @@ import yfinance as yf
 # 0. 頁面基本設定
 # ==========================================
 st.set_page_config(
-    page_title="台股籌碼與智慧選股戰情室", page_icon="📈", layout="wide"
+    page_title="台股籌碼與處置股戰情室", page_icon="📈", layout="wide"
 )
 
-st.title("📈 台股籌碼與處置股戰情室 (含智慧選股)")
+st.title("📈 台股籌碼與處置股戰情室")
 
 
 # ==========================================
-# 1. 每日智慧選股分頁邏輯
+# 1. 資料載入與基礎函式 (保留你原本的邏輯)
+# ==========================================
+@st.cache_data(ttl=3600)
+def load_market_data():
+  # 這裡保留你原本用來抓取或讀取市場資料的邏輯
+  # 示範回傳基本 DataFrame
+  data = {
+      "stock_id": ["2330", "2317", "2454", "3131", "6515", "2603"],
+      "stock_name": ["台積電", "鴻海", "聯發科", "弘塑", "穎崴", "長榮"],
+      "close": [1050.0, 215.0, 1250.0, 1120.0, 980.0, 185.0],
+      "MA5": [1040.0, 210.0, 1230.0, 1100.0, 970.0, 180.0],
+      "MA10": [1030.0, 205.0, 1210.0, 1080.0, 960.0, 175.0],
+      "MA20": [1020.0, 200.0, 1190.0, 1050.0, 950.0, 170.0],
+  }
+  return pd.DataFrame(data)
+
+
+# ==========================================
+# 2. 新增分頁：每日智慧選股功能函式
 # ==========================================
 def render_daily_stock_picker():
   st.subheader("📊 每日多維度智慧選股")
   st.markdown(
-      "系統自動掃描上市櫃公司，針對**內部人持股變化、近期營收成長、EPS 趨勢增加、主流產業景氣樂觀**進行綜合評分與歸類。"
+      "系統自動掃描上市櫃公司，針對四大核心條件進行綜合評分：\n"
+      "1. **內部人持股變化增加** | 2. **近期公司營收成長** | 3. **EPS 趨勢增加** | 4. **主流產業景氣樂觀**"
   )
 
   @st.cache_data(ttl=3600)
   def fetch_screening_data():
-    # 示範與模擬資料結構（實戰中可對接 FinMind、fugle 或公開資訊觀測站）
+    # 模擬資料：實際應用時可對接 FinMind、證交所或公開資訊觀測站
     data = [
         {
             "stock_id": "2330",
@@ -71,6 +91,15 @@ def render_daily_stock_picker():
             "revenue_growth": True,
             "eps_trend": False,
             "main_stream": True,
+        },
+        {
+            "stock_id": "2603",
+            "stock_name": "長榮",
+            "industry": "航運",
+            "insider_change": False,
+            "revenue_growth": False,
+            "eps_trend": True,
+            "main_stream": False,
         },
     ]
     return pd.DataFrame(data)
@@ -159,7 +188,6 @@ def render_daily_stock_picker():
     df_3 = df_display[df_display["match_count"] == 3]
     if not df_3.empty:
       for idx, row in df_3.iterrows():
-        # 對應原始 DataFrame 找出缺少哪一項
         orig_idx = df_filtered[df_filtered["stock_id"] == row["stock_id"]].index[
             0
         ]
@@ -181,7 +209,7 @@ def render_daily_stock_picker():
 
 
 # ==========================================
-# 2. 主分頁架構配置
+# 3. 主分頁架構配置 (完整保留原本分頁並加入新分頁)
 # ==========================================
 tab1, tab2, tab3, tab_picker = st.tabs(
     ["📊 技術面戰情室", "💰 籌碼面分析", "⚠️ 處置股追蹤", "🎯 每日智慧選股"]
@@ -189,31 +217,34 @@ tab1, tab2, tab3, tab_picker = st.tabs(
 
 with tab1:
   st.subheader("技術面戰情室與均線多頭篩選")
-  st.markdown("這裡放置原本的技術面走勢與均線篩選圖表區塊。")
-  # 範例佔位：可放你的互動圖表
+  st.markdown("這裡呈現你原本的均線多頭排列篩選與走勢圖表。")
+
+  # 保留你原本的技術面互動元件範例
   stock_input = st.text_input("輸入查詢代號 (例如 2330.TW)", "2330.TW")
   try:
     df_stock = yf.download(stock_input, period="3mo")
     if not df_stock.empty:
-      # 處理 MultiIndex 欄位問題（新版 yfinance 常見）
       if isinstance(df_stock.columns, pd.MultiIndex):
         df_stock.columns = df_stock.columns.get_level_values(0)
       st.line_chart(df_stock["Close"])
     else:
       st.warning("查無資料")
   except Exception as e:
-    st.info(f"請輸入正確的台股代號 (如 2330.TW)")
+    st.info("請輸入正確的台股代號（如 2330.TW）")
 
 with tab2:
   st.subheader("籌碼面分析")
-  st.markdown("法人買賣超、融資融券與主力進出追蹤。")
-  st.info("此區塊維持你原本的籌碼數據呈現。")
+  st.markdown("法人買賣超、主力進出與籌碼集中度追蹤。")
+  # 放置你原本的籌碼面表格或圖表
+  df_market = load_market_data()
+  st.dataframe(df_market, use_container_width=True)
 
 with tab3:
   st.subheader("處置股追蹤")
-  st.markdown("注意：處置中或即將出關之高風險/強勢股監控。")
-  st.info("此區塊維持你原本的處置股清單。")
+  st.markdown("注意：近期列為處置中或即將出關之高警戒標的監控。")
+  # 放置你原本的處置股清單
+  st.info("目前無處置股資料或維持你原本的串接清單。")
 
 with tab_picker:
-  # 載入我們剛剛寫好的全新每日選股分頁
+  # 載入我們新增的每日智慧選股分頁
   render_daily_stock_picker()
