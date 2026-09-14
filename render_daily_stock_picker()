@@ -1,0 +1,167 @@
+import pandas as pd
+import streamlit as st
+
+
+def render_daily_stock_picker():
+  st.subheader("📊 每日多維度智慧選股")
+  st.markdown(
+      "系統將自動掃描上市櫃公司，針對**內部人持股、營收成長、EPS 趨勢、主流產業（如：AI、半導體設備、低軌衛星等）**進行綜合評分篩選。"
+  )
+
+  # 模擬資料結構（實戰中可對接 FinMind、fugle 或上市櫃公開資訊觀測站 API）
+  # 這裡以示範架構呈現，確保邏輯完整可執行
+  @st.cache_data(ttl=3600)
+  def fetch_screening_data():
+    # 實際應用時，可在此處串接你的資料源
+    data = [
+        {
+            "stock_id": "2330",
+            "stock_name": "台積電",
+            "industry": "半導體",
+            "insider_change": True,
+            "revenue_growth": True,
+            "eps_trend": True,
+            "main_stream": True,
+        },
+        {
+            "stock_id": "3131",
+            "stock_name": "弘塑",
+            "industry": "半導體設備",
+            "insider_change": True,
+            "revenue_growth": True,
+            "eps_trend": True,
+            "main_stream": True,
+        },
+        {
+            "stock_id": "2454",
+            "stock_name": "聯發科",
+            "industry": "IC設計",
+            "insider_change": False,
+            "revenue_growth": True,
+            "eps_trend": True,
+            "main_stream": True,
+        },
+        {
+            "stock_id": "2317",
+            "stock_name": "鴻海",
+            "industry": "低軌衛星/AI伺服器",
+            "insider_change": True,
+            "revenue_growth": False,
+            "eps_trend": True,
+            "main_stream": True,
+        },
+        {
+            "stock_id": "6515",
+            "stock_name": "穎崴",
+            "industry": "半導體",
+            "insider_change": True,
+            "revenue_growth": True,
+            "eps_trend": False,
+            "main_stream": True,
+        },
+    ]
+    return pd.DataFrame(data)
+
+  df_raw = fetch_screening_data()
+
+  # 計算符合條件的總項數
+  condition_cols = [
+      "insider_change",
+      "revenue_growth",
+      "eps_trend",
+      "main_stream",
+  ]
+  df_raw["match_count"] = df_raw[condition_cols].sum(axis=1)
+
+  # 篩選出符合 4 項或 3 項的標的
+  df_filtered = df_raw[df_raw["match_count"] >= 3].copy()
+
+  if df_filtered.empty:
+    st.warning("今日無同時符合 3 項（含）以上條件的標的。")
+    return
+
+  # 標記分類
+  def get_status_label(count):
+    if count == 4:
+      return "🔥 四項全符合（強勢首選）"
+    elif count == 3:
+      return "⭐ 符合三項（潛力觀察）"
+    return "其他"
+
+  df_filtered["選股評級"] = df_filtered["match_count"].apply(get_status_label)
+
+  # 欄位中文化對照
+  condition_names = {
+      "insider_change": "1. 內部人增加",
+      "revenue_growth": "2. 營收成長",
+      "eps_trend": "3. EPS 增加",
+      "main_stream": "4. 主流產業",
+  }
+  df_display = df_filtered.rename(columns=condition_names)
+
+  # 區塊呈現：分頁籤或區塊顯示
+  tab_all, tab_4, tab_3 = st.tabs(
+      ["全部篩選結果", "🔥 四項全符合", "⭐ 符合三項（需額外留意）"]
+  )
+
+  with tab_all:
+    st.dataframe(
+        df_display[
+            [
+                "stock_id",
+                "stock_name",
+                "industry",
+                "選股評級",
+                "1. 內部人增加",
+                "2. 營收成長",
+                "3. EPS 增加",
+                "4. 主流產業",
+            ]
+        ],
+        use_container_width=True,
+    )
+
+  with tab_4:
+    st.markdown("### 💎 高確信度標的（四大條件兼具）")
+    df_4 = df_display[df_display["match_count"] == 4]
+    if not df_4.empty:
+      st.dataframe(
+          df_4[
+              [
+                  "stock_id",
+                  "stock_name",
+                  "industry",
+                  "1. 內部人增加",
+                  "2. 營收成長",
+                  "3. EPS 增加",
+                  "4. 主流產業",
+              ]
+          ],
+          use_container_width=True,
+      )
+    else:
+      st.info("今日暫無四項全符合標的。")
+
+  with tab_3:
+    st.markdown(
+        "### 🔍 潛力觀察標的（符合三項，建議檢查未達標項目是否有轉機）"
+    )
+    df_3 = df_display[df_display["match_count"] == 3]
+    if not df_3.empty:
+      # 找出未達標的項目進行標記提醒
+      for idx, row in df_3.iterrows():
+        missing_items = [
+            condition_names[col]
+            for col in condition_cols
+            if not df_raw.loc[idx, col]
+        ]
+        with st.expander(
+            f"📌 {row['stock_id']} {row['stock_name']} ({row['industry']}) —"
+            f" 缺少項目: {', '.join(missing_items)}"
+        ):
+          st.write(
+              f"該標的符合 3 項條件，但在 **{', '.join(missing_items)}**"
+              " 項目上未達標準。建議搭配近期法說會紀錄或籌碼面進行綜合評估。"
+          )
+    else:
+      st.info("今日暫無符合三項標的。")
