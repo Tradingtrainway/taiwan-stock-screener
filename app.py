@@ -21,15 +21,15 @@ INDUSTRY_MAP = {
     "2330": "台積電與先進製程", "3711": "台積電與先進製程",
     "2382": "AI伺服器與代工", "3231": "AI伺服器與代工", "2357": "AI伺服器與代工", "6669": "AI伺服器與代工", "6933": "AMAX-KY", "2376": "AI伺服器與代工",
     "3017": "液冷散熱與機殼", "3324": "液冷散熱與機殼", "3533": "液冷散熱與機殼", "8210": "液冷散熱與機殼", "1513": "液冷散熱與機殼",
-    "3450": "CPO光傳輸/矽光子", "3081": "CPO光傳輸/矽光子", "3163": "CPO光傳輸/矽光子", "3363": "CPO光傳輸/矽光子", "4979": "CPO光傳輸/矽光子",
-    "3661": "IP/ASIC矽智財", "3035": "IP/ASIC矽智財", "8054": "IP/ASIC矽智財", "3529": "IP/ASIC矽智財", "3443": "IP/ASIC矽智財",
-    "2383": "PCB與高階載板", "3037": "PCB與高階載板", "8046": "PCB與高階載板", "6274": "PCB與高階載板", "8021": "PCB與高階載板",
-    "6620": "半導體設備與廠務", "3583": "半導體設備與廠務", "6187": "半導體設備與廠務", "3680": "半導體設備與廠務", "3131": "半導體設備與廠務", "3413": "半導體設備與廠務",
-    "3715": "高階封測", "2449": "高階封測", "6239": "高階封測", "8150": "高階封測",
-    "2345": "網通與高速傳輸", "5388": "網通與高速傳輸", "6285": "網通與高速傳輸", "3596": "網通與高速傳輸",
-    "8358": "PA微波與電源", "2455": "PA微波與電源", "2308": "PA微波與電源", "6799": "PA微波與電源",
-    "2344": "記憶體與HBM", "2408": "記憶體與HBM", "8299": "記憶體與HBM", "3260": "記憶體與HBM",
-    "4583": "機器人與自動化", "1597": "機器人與自動化", "2049": "機器人與自動化", "4562": "機器人與自動化"
+    "3450": "CPO光傳輸/矽光子", "3081": "CPO光傳輸/矽光子", "3163": "CPO光傳輸/矽光子", "3363": "上詮", "4979": "華星光",
+    "3661": "IP/ASIC矽智財", "3035": "智原", "8054": "安國", "3529": "力旺", "3443": "創意",
+    "2383": "PCB與高階載板", "3037": "欣興", "8046": "南電", "6274": "台燿", "8021": "尖點",
+    "6620": "漢科", "3583": "辛耘", "6187": "萬潤", "3680": "家登", "3131": "弘塑", "3413": "京鼎",
+    "3715": "定穎投控", "2449": "京元電子", "6239": "力成", "8150": "南茂",
+    "2345": "智邦", "5388": "中磊", "6285": "啟碁", "3596": "智易",
+    "8358": "金居", "2455": "全新", "2308": "台達電", "6799": "來億-KY",
+    "2344": "華邦電", "2408": "南亞科", "8299": "群聯", "3260": "威剛",
+    "4583": "台灣精銳", "1597": "直得", "2049": "上銀", "4562": "穎漢"
 }
 
 STOCK_NAMES = {
@@ -64,7 +64,7 @@ def get_latest_trade_date():
     return today
 
 # ==========================================
-# 🚀 雙備份股價抓取模組 (結合真實防禦)
+# 🚀 核心資料抓取與快取函式 (全域頂格定義)
 # ==========================================
 @st.cache_data(ttl=1800)
 def fetch_stock_data_robust(stock_id):
@@ -97,7 +97,6 @@ def fetch_stock_data_robust(stock_id):
     except Exception:
         pass
 
-    # 若 API 皆斷線，提供基於真實代號雜湊的平滑趨勢
     date_list = [(datetime.date.today() - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90, 0, -1)]
     base_price = 100.0
     prices = []
@@ -149,6 +148,74 @@ def fetch_all_ai_sector_ranks():
         
     return sector_perf, sector_details, sector_stocks_map
 
+@st.cache_data(ttl=3600)
+def fetch_screener_data():
+    watch_list = list(INDUSTRY_MAP.keys())
+    all_data = []
+    for stock_id in watch_list:
+        df_price = fetch_stock_data_robust(stock_id)
+        if df_price is not None and not df_price.empty:
+            df_price["StockID"] = stock_id
+            all_data.append(df_price)
+    if not all_data:
+        return pd.DataFrame(), ""
+    df_all = pd.concat(all_data, ignore_index=True)
+    df_all["close"] = pd.to_numeric(df_all["close"], errors="coerce")
+    df_all["high"] = pd.to_numeric(df_all["max"], errors="coerce")
+    df_all["min"] = pd.to_numeric(df_all["min"], errors="coerce")
+    
+    df_all["MA5"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(5).mean())
+    df_all["MA10"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(10).mean())
+    df_all["MA20"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(20).mean())
+    
+    df_all["High_20"] = df_all.groupby("StockID")["high"].transform(lambda x: x.rolling(20).max())
+    df_all["Low_20"] = df_all.groupby("StockID")["min"].transform(lambda x: x.rolling(20).min())
+    df_all["Consolidation_Range"] = (df_all["High_20"] - df_all["Low_20"]) / df_all["Low_20"]
+    
+    latest_date = df_all["date"].max()
+    return df_all[df_all["date"] == latest_date].copy(), latest_date
+
+@st.cache_data(ttl=3600)
+def fetch_smart_screening_results():
+    watch_list = list(INDUSTRY_MAP.keys())
+    results = []
+    
+    for sid in watch_list:
+        sname = STOCK_NAMES.get(sid, "個股")
+        ind = get_industry(sid)
+        df_s = fetch_stock_data_robust(sid)
+        
+        if df_s is not None and len(df_s) >= 20:
+            df_s = df_s.sort_values("date")
+            close_price = df_s["close"].iloc[-1]
+            c_prev = df_s["close"].iloc[-2]
+            pct_chg = (close_price - c_prev) / c_prev * 100
+            
+            ma5 = df_s["close"].tail(5).mean()
+            ma10 = df_s["close"].tail(10).mean()
+            ma20 = df_s["close"].tail(20).mean()
+            vol_mean = df_s["Trading_Volume"].tail(20).mean()
+            curr_vol = df_s["Trading_Volume"].iloc[-1]
+            
+            cond1_momentum = pct_chg > 1.5
+            cond2_ma = (close_price > ma5) and (ma5 > ma10) and (ma10 > ma20)
+            cond3_vol = curr_vol > vol_mean
+            cond4_industry = ind in ["AI伺服器與代工", "CPO光傳輸/矽光子", "台積電與先進製程", "液冷散熱與機殼", "IP/ASIC矽智財"]
+            
+            matched_count = sum([cond1_momentum, cond2_ma, cond3_vol, cond4_industry])
+            
+            results.append({
+                "StockID": sid, "StockName": sname, "Industry": ind,
+                "Close": close_price, "PctChg": pct_chg,
+                "Cond1": cond1_momentum, "Cond2": cond2_ma,
+                "Cond3": cond3_vol, "Cond4": cond4_industry,
+                "MatchedCount": matched_count
+            })
+    return pd.DataFrame(results)
+
+# ==========================================
+# 📊 分析輔助函式
+# ==========================================
 def analyze_ai_sector_relative_strength(target_stock_id):
     target_ind = get_industry(target_stock_id)
     try:
@@ -204,7 +271,6 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
     if ma5 > ma20: score += 15
     if latest_close >= high_60 * 0.90: score += 10
     
-    # 增加風控停損點計算 (以 20MA 或近期低點下方 3% 作為嚴格防守價)
     stop_loss = round(ma20 * 0.97, 2)
     risk_reward_ratio = round((high_60 - latest_close) / max(1.0, (latest_close - stop_loss)), 1)
 
@@ -232,7 +298,23 @@ def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, 
         "advice": advice
     }
 
-# 建立分頁標籤
+def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
+    df_stock = df_stock.sort_values("date")
+    fig = go.Figure(data=[go.Candlestick(
+        x=df_stock['date'], open=df_stock['open'], high=df_stock['max'],
+        low=df_stock['min'], close=df_stock['close'],
+        increasing_line_color='#d62728', decreasing_line_color='#2ca02c', name="K線"
+    )])
+    fig.update_layout(
+        title=f"【{stock_info_str}】近 60 日 K 線圖",
+        xaxis_title="日期", yaxis_title="價格", xaxis_rangeslider_visible=False,
+        height=380, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified"
+    )
+    return fig
+
+# ==========================================
+# 📑 介面分頁架構建置
+# ==========================================
 tab1, tab2, tab3, tab4 = st.tabs([
     "📈 低檔打底 + 投信鎖股選股", 
     "🚨 處置股追蹤與 AI 出關勝率", 
@@ -240,41 +322,14 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🎯 智慧多維選股戰情室（實戰量化篩選）"
 ])
 
-# ==========================================
+# ------------------------------------------
 # TAB 1: 低檔打底 + 投信鎖股策略
-# ==========================================
+# ------------------------------------------
 with tab1:
     st.title("📈 台股精準鎖股 — 低檔打底突破選股儀表板")
     st.caption("專注篩選：低檔盤整打底 + 均線多頭排列 (Close > 5MA > 10MA > 20MA) + 波幅收斂")
     
-max_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
-
-    @st.cache_data(ttl=3600)
-    def fetch_screener_data():
-        watch_list = list(INDUSTRY_MAP.keys())
-        all_data = []
-        for stock_id in watch_list:
-            df_price = fetch_stock_data_robust(stock_id)
-            if df_price is not None and not df_price.empty:
-                df_price["StockID"] = stock_id
-                all_data.append(df_price)
-        if not all_data:
-            return pd.DataFrame(), ""
-        df_all = pd.concat(all_data, ignore_index=True)
-        df_all["close"] = pd.to_numeric(df_all["close"], errors="coerce")
-        df_all["high"] = pd.to_numeric(df_all["max"], errors="coerce")
-        df_all["min"] = pd.to_numeric(df_all["min"], errors="coerce")
-        
-        df_all["MA5"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(5).mean())
-        df_all["MA10"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(10).mean())
-        df_all["MA20"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(20).mean())
-        
-        df_all["High_20"] = df_all.groupby("StockID")["high"].transform(lambda x: x.rolling(20).max())
-        df_all["Low_20"] = df_all.groupby("StockID")["min"].transform(lambda x: x.rolling(20).min())
-        df_all["Consolidation_Range"] = (df_all["High_20"] - df_all["Low_20"]) / df_all["Low_20"]
-        
-        latest_date = df_all["date"].max()
-        return df_all[df_all["date"] == latest_date].copy(), latest_date
+    max_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
 
     with st.spinner("⏳ 正在分析盤整打底與均線多頭排列標的..."):
         df_today, latest_date = fetch_screener_data()
@@ -302,23 +357,9 @@ max_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35
             display_df["近20日高低波幅"] = display_df["近20日高低波幅"].apply(lambda x: f"{x:.1%}")
             st.dataframe(display_df, use_container_width=True)
 
-def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
-    df_stock = df_stock.sort_values("date")
-    fig = go.Figure(data=[go.Candlestick(
-        x=df_stock['date'], open=df_stock['open'], high=df_stock['max'],
-        low=df_stock['min'], close=df_stock['close'],
-        increasing_line_color='#d62728', decreasing_line_color='#2ca02c', name="K線"
-    )])
-    fig.update_layout(
-        title=f"【{stock_info_str}】近 60 日 K 線圖",
-        xaxis_title="日期", yaxis_title="價格", xaxis_rangeslider_visible=False,
-        height=380, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified"
-    )
-    return fig
-
-# ==========================================
+# ------------------------------------------
 # TAB 2: 處置股追蹤
-# ==========================================
+# ------------------------------------------
 with tab2:
     st.title("🚨 處置股精準追蹤與出關勝率分析")
     st.markdown("追蹤近期列入處置之熱門標的，結合族群動態與技術面支撐進行出關勝率評估。")
@@ -349,9 +390,9 @@ with tab2:
             st.info(f"💡 **實戰建議：** {ai_res['advice']}")
         st.markdown("---")
 
-# ==========================================
+# ------------------------------------------
 # TAB 3: AI 次產業動能與 nStock 風格熱力圖
-# ==========================================
+# ------------------------------------------
 with tab3:
     st.title("🗺️ AI 供應鏈 — 次產業資金動能與即時熱力圖")
     sector_perf, sector_details, sector_stocks_map = fetch_all_ai_sector_ranks()
@@ -371,9 +412,9 @@ with tab3:
     fig_tree.update_layout(margin=dict(l=5, r=5, t=10, b=10), height=550)
     st.plotly_chart(fig_tree, use_container_width=True)
 
-# ==========================================
-# TAB 4: 智慧多維選股戰情室（已改為真實技術量化邏輯）
-# ==========================================
+# ------------------------------------------
+# TAB 4: 智慧多維選股戰情室（真實量化交叉篩選）
+# ------------------------------------------
 with tab4:
     st.title("🎯 智慧多維選股戰情室 — 實戰量化交叉篩選")
     st.markdown("""
@@ -383,45 +424,6 @@ with tab4:
     3. 💰 **強勢成交量能**（成交量高於近 20 日平均）
     4. 🌐 **主流強勢產業**（身處半導體先進製程、AI伺服器、CPO矽光子、散熱等主流族群）
     """)
-
-    @st.cache_data(ttl=3600)
-    def fetch_smart_screening_results():
-        watch_list = list(INDUSTRY_MAP.keys())
-        results = []
-        
-        for sid in watch_list:
-            sname = STOCK_NAMES.get(sid, "個股")
-            ind = get_industry(sid)
-            df_s = fetch_stock_data_robust(sid)
-            
-            if df_s is not None and len(df_s) >= 20:
-                df_s = df_s.sort_values("date")
-                close_price = df_s["close"].iloc[-1]
-                c_prev = df_s["close"].iloc[-2]
-                pct_chg = (close_price - c_prev) / c_prev * 100
-                
-                ma5 = df_s["close"].tail(5).mean()
-                ma10 = df_s["close"].tail(10).mean()
-                ma20 = df_s["close"].tail(20).mean()
-                vol_mean = df_s["Trading_Volume"].tail(20).mean()
-                curr_vol = df_s["Trading_Volume"].iloc[-1]
-                
-                # 真實量化條件判定
-                cond1_momentum = pct_chg > 1.5
-                cond2_ma = (close_price > ma5) and (ma5 > ma10) and (ma10 > ma20)
-                cond3_vol = curr_vol > vol_mean
-                cond4_industry = ind in ["AI伺服器與代工", "CPO光傳輸/矽光子", "台積電與先進製程", "液冷散熱與機殼", "IP/ASIC矽智財"]
-                
-                matched_count = sum([cond1_momentum, cond2_ma, cond3_vol, cond4_industry])
-                
-                results.append({
-                    "StockID": sid, "StockName": sname, "Industry": ind,
-                    "Close": close_price, "PctChg": pct_chg,
-                    "Cond1": cond1_momentum, "Cond2": cond2_ma,
-                    "Cond3": cond3_vol, "Cond4": cond4_industry,
-                    "MatchedCount": matched_count
-                })
-        return pd.DataFrame(results)
 
     with st.spinner("⏳ 正在執行四大真實量化維度交叉運算..."):
         df_smart = fetch_smart_screening_results()
