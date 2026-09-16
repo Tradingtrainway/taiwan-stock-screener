@@ -247,7 +247,7 @@ with tab1:
     st.title("📈 台股精準鎖股 — 低檔打底突破選股儀表板")
     st.caption("專注篩選：低檔盤整打底 + 均線多頭排列 (Close > 5MA > 10MA > 20MA) + 波幅收斂")
     
-    min_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
+max_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
 
     @st.cache_data(ttl=3600)
     def fetch_screener_data():
