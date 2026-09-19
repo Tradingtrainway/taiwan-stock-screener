@@ -2331,6 +2331,52 @@ def fmt_number(value):
 
 
 
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_taiex_benchmark():
+    """
+    取得台股加權指數作為 Market Regime 基準。
+    本函式只負責「市場環境」，不再把大盤當作個股 Relative Strength。
+    """
+    try:
+        df = yf.download(
+            "^TWII",
+            period="6mo",
+            progress=False,
+            auto_adjust=False,
+        )
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index()
+        df.rename(
+            columns={
+                "Date": "date",
+                "Close": "close",
+            },
+            inplace=True,
+        )
+
+        if "date" not in df.columns or "close" not in df.columns:
+            return pd.DataFrame()
+
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+
+        return (
+            df.dropna(subset=["date", "close"])[["date", "close"]]
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+    except Exception:
+        return pd.DataFrame()
+
+
 # TAB 2：全市場處置股（已重寫）
 # ============================================================
 with tab2:
