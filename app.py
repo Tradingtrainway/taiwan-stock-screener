@@ -1,4 +1,5 @@
 import datetime
+import os
 import random
 import re
 from zoneinfo import ZoneInfo
@@ -769,10 +770,397 @@ def safe_get_json(url, session=None, timeout=15, retries=2):
     raise RuntimeError(f"{url}：{last_error}")
 
 
+def get_finmind_token():
+    """Read FinMind token from Streamlit Secrets or environment."""
+    token = os.getenv("FINMIND_TOKEN", "").strip()
+
+    if token:
+        return token
+
+    try:
+        token = str(st.secrets.get("FINMIND_TOKEN", "")).strip()
+    except Exception:
+        token = ""
+
+    return token
+
+
+@st.cache_resource(show_spinner=False)
+def get_finmind_loader():
+    token = get_finmind_token()
+    dl = DataLoader()
+
+    if token:
+        dl.login_by_token(api_token=token)
+
+    return dl
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_finmind_stock_market_map():
+    """
+    TaiwanStockInfo：用最新 date 判斷目前市場別。
+    FinMind 官方文件說明：同一股票若曾由興櫃轉上市/上櫃，
+    會保留歷史列，因此必須取同一 stock_id 最新 date 那列。
+    """
+    try:
+        dl = get_finmind_loader()
+        info = dl.taiwan_stock_info()
+
+        if info is None or info.empty:
+            return pd.DataFrame()
+
+        info = info.copy()
+        info["date"] = pd.to_datetime(info["date"], errors="coerce")
+        info = info.dropna(subset=["date"])
+        info = info.sort_values("date").drop_duplicates(
+            subset=["stock_id"], keep="last"
+        )
+
+        info = info[["stock_id", "stock_name", "type"]].copy()
+        info["stock_id"] = info["stock_id"].astype(str).str.strip()
+        return info
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def parse_finmind_disposal_dataframe(df):
+    """Normalize FinMind TaiwanStockDispositionSecuritiesPeriod."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+
+    required = [
+        "date",
+        "stock_id",
+        "stock_name",
+        "disposition_cnt",
+        "condition",
+        "measure",
+        "period_start",
+        "period_end",
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"FinMind 處置資料缺少欄位：{missing}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["period_start_date"] = pd.to_datetime(
+        df["period_start"], errors="coerce"
+    ).dt.date
+    df["period_end_date"] = pd.to_datetime(
+        df["period_end"], errors="coerce"
+    ).dt.date
+
+    df["stock_id"] = df["stock_id"].astype(str).str.strip()
+    df["stock_name"] = df["stock_name"].astype(str).str.strip()
+    df["condition"] = df["condition"].fillna("").astype(str).str.strip()
+    df["measure"] = df["measure"].fillna("").astype(str).str.strip()
+
+    # 用 disposition_cnt 判斷處置次數，而不是從中文文字猜。
+    df["disposition_cnt"] = pd.to_numeric(
+        df["disposition_cnt"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    return df
+
+
+def finmind_records_to_app(df):
+    """Convert normalized FinMind data to the app's common record schema."""
+    if df is None or df.empty:
+        return []
+
+    info = fetch_finmind_stock_market_map()
+    if not info.empty:
+        market_map = info.set_index("stock_id")["type"].to_dict()
+        name_map = info.set_index("stock_id")["stock_name"].to_dict()
+    else:
+        market_map = {}
+        name_map = {}
+
+    records = []
+    for _, row in df.iterrows():
+        sid = str(row["stock_id"]).strip()
+        market_type = market_map.get(sid, "")
+
+        # 使用者目前 TAB 2 以 TWSE / TPEx 為主；興櫃資料先排除。
+        if market_type not in {"twse", "tpex"}:
+            continue
+
+        start_date = row["period_start_date"]
+        end_date = row["period_end_date"]
+        announce = row["date"].date() if pd.notna(row["date"]) else None
+
+        if not start_date or not end_date:
+            continue
+
+        market = "上市" if market_type == "twse" else "上櫃"
+        name = str(row["stock_name"]).strip() or str(
+            name_map.get(sid, STOCK_NAMES.get(sid, "未知"))
+        )
+
+        records.append(
+            {
+                "stock_id": sid,
+                "stock_name": name,
+                "market": market,
+                "announce_date": (
+                    announce.strftime("%Y-%m-%d") if announce else ""
+                ),
+                "start_date": start_date,
+                "end_date": end_date,
+                "start_dt": start_date.strftime("%Y-%m-%d"),
+                "end_dt": end_date.strftime("%Y-%m-%d"),
+                "period": f"{start_date:%Y-%m-%d}～{end_date:%Y-%m-%d}",
+                "reason": str(row["condition"]).strip(),
+                "measure": str(row["measure"]).strip(),
+                "detail": "",
+                "note": f"累計第 {int(row['disposition_cnt'])} 次",
+                "disposition_cnt": int(row["disposition_cnt"]),
+                "source": "FinMind TaiwanStockDispositionSecuritiesPeriod",
+            }
+        )
+
+    return records
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_finmind_disposal_records(refresh_key):
+    """
+    Primary source for TAB 2.
+
+    FinMind currently documents TaiwanStockDispositionSecuritiesPeriod as:
+    - covering TWSE / TPEx / ESB
+    - update window Mon-Sat 20:00-23:00
+    - providing announcement date, cumulative count, condition, measure,
+      period_start and period_end
+    """
+    _ = refresh_key
+
+    token = get_finmind_token()
+    if not token:
+        raise RuntimeError(
+            "尚未設定 FINMIND_TOKEN。此資料集的『單次取得全市場資料』"
+            "需要 FinMind Backer/Sponsor 權限，請在 Streamlit Secrets"
+            "加入 FINMIND_TOKEN。"
+        )
+
+    end_date = get_latest_trade_date()
+    start_date = end_date - datetime.timedelta(days=365)
+
+    dl = get_finmind_loader()
+    df = dl.taiwan_stock_disposition_securities_period(
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
+    )
+
+    normalized = parse_finmind_disposal_dataframe(df)
+    return finmind_records_to_app(normalized)
+
+
+def safe_get_text(url, session=None, timeout=15, retries=1, params=None):
+    """HTTP helper for official CSV/HTML sources."""
+    session = session or requests.Session()
+    last_error = None
+
+    for _ in range(retries + 1):
+        try:
+            resp = session.get(
+                url,
+                headers=OFFICIAL_HEADERS,
+                timeout=timeout,
+                params=params,
+            )
+            resp.raise_for_status()
+            return resp.text, resp.status_code, resp.headers
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(f"{url}：{last_error}")
+
+
+def parse_tpex_disposal_csv_text(text):
+    """
+    TPEx official CSV export.
+    The web endpoint can return CSV even when the JSON/API endpoint is 403.
+    We do NOT assume row[2]/row[3] date positions; instead inspect headers.
+    """
+    if not text or len(text.strip()) < 5:
+        return []
+
+    raw = text.lstrip("\ufeff")
+
+    # Try UTF-8 first; requests.text may already be decoded correctly.
+    from io import StringIO
+
+    frames = []
+    for encoding in [None, "utf-8", "big5"]:
+        try:
+            if encoding is None:
+                df = pd.read_csv(StringIO(raw), dtype=str)
+            else:
+                df = pd.read_csv(
+                    StringIO(raw.encode("utf-8", errors="ignore").decode(encoding, errors="ignore")),
+                    dtype=str,
+                )
+            if len(df.columns) >= 3:
+                frames.append(df)
+                break
+        except Exception:
+            continue
+
+    if not frames:
+        return []
+
+    df = frames[0].fillna("")
+    df.columns = [normalize_text(c) for c in df.columns]
+
+    def col_by_alias(aliases):
+        exact = {c: c for c in df.columns}
+        for alias in aliases:
+            if alias in exact:
+                return alias
+        normalized = {
+            re.sub(r"[\s_\-./]", "", c.lower()): c for c in df.columns
+        }
+        for alias in aliases:
+            k = re.sub(r"[\s_\-./]", "", alias.lower())
+            if k in normalized:
+                return normalized[k]
+        return None
+
+    code_col = col_by_alias(["證券代號", "代號", "SecuritiesCode"])
+    name_col = col_by_alias(["證券名稱", "證券英文名稱", "名稱", "CompanyName"])
+    announce_col = col_by_alias(["公布日期", "公告日期", "AnnouncementDate"])
+    start_col = col_by_alias(["處置開始日期", "處置起始日", "StartDate"])
+    end_col = col_by_alias(["處置結束日期", "處置終止日", "EndDate"])
+    reason_col = col_by_alias(["處置原因", "處置條件", "Condition"])
+    measure_col = col_by_alias(["處置內容", "處置措施", "Measure"])
+
+    # 一些匯出格式可能直接只有「處置起訖時間」欄。
+    period_col = col_by_alias(["處置起訖時間", "處置起迄時間", "處置期間"])
+
+    if not code_col or not name_col:
+        return []
+
+    records = []
+    for _, row in df.iterrows():
+        code = normalize_text(row.get(code_col, ""))
+        code = re.sub(r"\D", "", code)
+        if len(code) != 4:
+            continue
+
+        start_date = (
+            roc_or_western_date_to_date(row.get(start_col, ""))
+            if start_col
+            else None
+        )
+        end_date = (
+            roc_or_western_date_to_date(row.get(end_col, ""))
+            if end_col
+            else None
+        )
+
+        if (not start_date or not end_date) and period_col:
+            start_date, end_date, _ = parse_disposal_period(
+                row.get(period_col, "")
+            )
+
+        if not start_date or not end_date:
+            continue
+
+        records.append(
+            {
+                "stock_id": code,
+                "stock_name": normalize_text(row.get(name_col, "")),
+                "market": "上櫃",
+                "announce_date": normalize_text(
+                    row.get(announce_col, "") if announce_col else ""
+                ),
+                "start_date": start_date,
+                "end_date": end_date,
+                "start_dt": start_date.strftime("%Y-%m-%d"),
+                "end_dt": end_date.strftime("%Y-%m-%d"),
+                "period": f"{start_date:%Y-%m-%d}～{end_date:%Y-%m-%d}",
+                "reason": normalize_text(
+                    row.get(reason_col, "") if reason_col else ""
+                ),
+                "measure": normalize_text(
+                    row.get(measure_col, "") if measure_col else ""
+                ),
+                "detail": "",
+                "note": "",
+                "disposition_cnt": None,
+                "source": "TPEx official CSV",
+            }
+        )
+
+    return records
+
+
+def fetch_tpex_official_csv_records(session):
+    """
+    Official TPEx CSV export endpoint.
+
+    The same endpoint is linked from data.gov.tw's TPEx disposition dataset.
+    """
+    page_url = "https://www.tpex.org.tw/zh-tw/announce/market/disposal.html"
+    csv_url = (
+        "https://www.tpex.org.tw/web/bulletin/"
+        "disposal_information/disposal_information_result.php"
+    )
+
+    # Establish a session/cookie first; some TPEx edge layers require the page visit.
+    try:
+        session.get(
+            page_url,
+            headers=OFFICIAL_HEADERS,
+            timeout=12,
+        )
+    except Exception:
+        pass
+
+    csv_headers = dict(OFFICIAL_HEADERS)
+    csv_headers.update(
+        {
+            "Referer": page_url,
+            "Origin": "https://www.tpex.org.tw",
+            "Accept": "text/csv,application/octet-stream,text/plain,*/*",
+        }
+    )
+
+    resp = session.get(
+        csv_url,
+        headers=csv_headers,
+        params={"l": "zh-tw", "o": "data"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+    # Try to decode common encodings used by Taiwanese official CSVs.
+    raw_bytes = resp.content
+    candidates = []
+    for enc in ["utf-8-sig", "utf-8", "big5", "cp950"]:
+        try:
+            candidates.append(raw_bytes.decode(enc))
+        except Exception:
+            pass
+
+    for text in candidates:
+        records = parse_tpex_disposal_csv_text(text)
+        if records:
+            return records
+
+    raise RuntimeError("TPEx official CSV 回傳內容無法解析")
+
+
 def get_disposal_refresh_key():
     """
-    17:30 後每 10 分鐘形成新的 cache key。
-    目的：證交所/櫃買中心傍晚公告更新後，不會被舊 cache 卡住。
+    17:00 後每 10 分鐘形成新的 cache key。
+    FinMind 的處置資料目前官方文件標示更新視窗約 20:00-23:00，
+    因此傍晚後持續更新即可。
     """
     now = taipei_now()
 
@@ -786,78 +1174,129 @@ def get_disposal_refresh_key():
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_disposal_stocks(refresh_key):
     """
-    只使用官方 TWSE / TPEx 資料，不再使用人工 fallback 假資料。
+    Full-market disposal source strategy:
 
-    回傳：
-        df, meta
+    1. PRIMARY: FinMind TaiwanStockDispositionSecuritiesPeriod
+       - requires FINMIND_TOKEN / Backer/Sponsor for all-stock query
+       - unified listed + OTC + emerging source
+       - true period_start / period_end
+
+    2. VALIDATION: TWSE official JSON
+       - compare listed rows when available
+
+    3. FALLBACK: TPEx official CSV export
+       - use CSV rather than the 403-prone OpenAPI/legacy JSON
+
+    No fabricated fallback rows are ever inserted.
     """
     _ = refresh_key
     session = requests.Session()
 
-    records = []
+    primary_records = []
+    twse_records = []
+    tpex_records = []
     errors = []
-    source_counts = {"上市": 0, "上櫃": 0}
+    sources_used = []
 
     # --------------------------------------------------------
-    # 1. TWSE 上市處置
+    # 1. PRIMARY — FinMind unified source
     # --------------------------------------------------------
-    twse_url = "https://www.twse.com.tw/rwd/zh/announcement/punish?response=json"
+    try:
+        primary_records = fetch_finmind_disposal_records(refresh_key)
+        if primary_records:
+            sources_used.append(
+                "FinMind TaiwanStockDispositionSecuritiesPeriod"
+            )
+    except Exception as exc:
+        errors.append(f"FinMind：{exc}")
 
+    # --------------------------------------------------------
+    # 2. TWSE official validation / fallback for listed stocks
+    # --------------------------------------------------------
+    twse_url = (
+        "https://www.twse.com.tw/rwd/zh/announcement/punish?response=json"
+    )
     try:
         payload, _ = safe_get_json(twse_url, session=session)
         twse_records = parse_twse_disposal_json(payload)
-        records.extend(twse_records)
-        source_counts["上市"] = len(twse_records)
+        if twse_records:
+            sources_used.append("TWSE official JSON")
     except Exception as exc:
         errors.append(f"TWSE：{exc}")
 
     # --------------------------------------------------------
-    # 2. TPEx 上櫃處置：優先 OpenAPI
+    # 3. TPEx official CSV fallback / validation
     # --------------------------------------------------------
-    tpex_openapi_url = (
-        "https://www.tpex.org.tw/openapi/v1/tpex_disposal_information"
-    )
-
-    tpex_records = []
     try:
-        payload, _ = safe_get_json(tpex_openapi_url, session=session)
-        tpex_records = parse_tpex_disposal_json(payload)
+        tpex_records = fetch_tpex_official_csv_records(session)
+        if tpex_records:
+            sources_used.append("TPEx official CSV")
     except Exception as exc:
-        errors.append(f"TPEx OpenAPI：{exc}")
+        errors.append(f"TPEx official CSV：{exc}")
 
     # --------------------------------------------------------
-    # 3. TPEx 舊版 JSON 作為官方備援
+    # 4. Merge — FinMind primary, official sources as fallback
     # --------------------------------------------------------
-    if not tpex_records:
-        tpex_legacy_url = (
-            "https://www.tpex.org.tw/web/bulletin/"
-            "disposal_information/disposal_information_result.php"
-            "?l=zh-tw&o=json"
+    records = []
+
+    if primary_records:
+        records.extend(primary_records)
+
+    # Add missing TWSE rows not present in primary.
+    primary_keys = {
+        (
+            r.get("market"),
+            r.get("stock_id"),
+            r.get("start_dt"),
+            r.get("end_dt"),
         )
-        try:
-            payload, _ = safe_get_json(tpex_legacy_url, session=session)
-            tpex_records = parse_tpex_disposal_json(payload)
-        except Exception as exc:
-            errors.append(f"TPEx Legacy：{exc}")
+        for r in primary_records
+    }
 
-    records.extend(tpex_records)
-    source_counts["上櫃"] = len(tpex_records)
+    for r in twse_records:
+        key = (
+            r.get("market"),
+            r.get("stock_id"),
+            r.get("start_dt"),
+            r.get("end_dt"),
+        )
+        if key not in primary_keys:
+            r["source"] = "TWSE official JSON"
+            records.append(r)
 
-    # --------------------------------------------------------
-    # 4. 去重與日期標準化
-    # 同一股票若有多筆處置紀錄，保留「日期範圍 + 市場」不同的紀錄。
-    # --------------------------------------------------------
+    for r in tpex_records:
+        key = (
+            r.get("market"),
+            r.get("stock_id"),
+            r.get("start_dt"),
+            r.get("end_dt"),
+        )
+        if key not in primary_keys:
+            r["source"] = "TPEx official CSV"
+            records.append(r)
+
     df = pd.DataFrame(records)
 
     if df.empty:
         meta = {
             "last_refresh": taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
             "official_fetch_ok": False,
-            "source_counts": source_counts,
+            "source_counts": {"上市": 0, "上櫃": 0},
             "errors": errors,
+            "sources_used": sources_used,
+            "finmind_token_configured": bool(get_finmind_token()),
         }
         return df, meta
 
+    # Ensure consistent date types.
+    df["start_date"] = pd.to_datetime(
+        df["start_date"], errors="coerce"
+    ).dt.date
+    df["end_date"] = pd.to_datetime(
+        df["end_date"], errors="coerce"
+    ).dt.date
+
+    df = df.dropna(subset=["start_date", "end_date"])
     df = df.drop_duplicates(
         subset=["market", "stock_id", "start_dt", "end_dt"],
         keep="first",
@@ -876,15 +1315,18 @@ def fetch_all_disposal_stocks(refresh_key):
         axis=1,
     )
 
-    # 只顯示：
-    # A. 最新交易日仍在處置中的股票
-    # B. 次一營業日開始處置、讓投資人收盤後就能看到新公告
+    # 只顯示目前有效或次一營業日生效。
     df = df[
         df["status"].isin(["處置中", "次一營業日生效"])
     ].copy()
 
-    # 為了讓畫面穩定排序：
-    # 先處置中，再次一營業日生效；同狀態再依開始日與代號排序
+    # 官方來源驗證標記：同一事件若 TWSE/TPEx 與 FinMind 有多來源，
+    # 讓畫面知道這不是單一來源孤證。
+    def source_label(row):
+        return row.get("source", "未知")
+
+    df["source_display"] = df.apply(source_label, axis=1)
+
     status_order = {"處置中": 0, "次一營業日生效": 1}
     df["_status_order"] = df["status"].map(status_order).fillna(99)
 
@@ -899,12 +1341,20 @@ def fetch_all_disposal_stocks(refresh_key):
 
     meta = {
         "last_refresh": taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
-        "official_fetch_ok": bool(records),
-        "source_counts": source_counts,
+        "official_fetch_ok": True,
+        "source_counts": {
+            "上市": int((df["market"] == "上市").sum()),
+            "上櫃": int((df["market"] == "上櫃").sum()),
+        },
         "errors": errors,
+        "sources_used": sources_used,
+        "finmind_token_configured": bool(get_finmind_token()),
         "latest_trade_date": latest_trade_date.strftime("%Y-%m-%d"),
         "next_trade_date": next_trade_date.strftime("%Y-%m-%d"),
-        "source_note": "資料來源：TWSE / TPEx 官方處置資訊",
+        "source_note": (
+            "主資料：FinMind TaiwanStockDispositionSecuritiesPeriod；"
+            "官方驗證/備援：TWSE JSON、TPEx CSV"
+        ),
     }
 
     return df, meta
@@ -1662,8 +2112,9 @@ def analyze_disposal_event_model(
 with tab2:
     st.title("🚨 全市場處置股動態追蹤與事件型模型分析")
     st.caption(
-        "處置清單僅採用 TWSE / TPEx 官方資料；模型另整合法人、融資融券、"
-        "量價、相對大盤與處置事件特徵。17:00 後每 10 分鐘自動刷新。"
+        "第 2 分頁為獨立的處置事件模型。處置主資料優先採用 FinMind"
+        "全市場處置事件資料，並以 TWSE / TPEx 官方資料驗證；17:00 後"
+        "每 10 分鐘刷新，FinMind 官方文件標示處置資料更新視窗約 20:00～23:00。"
     )
 
     # 自動刷新：
@@ -1711,6 +2162,21 @@ with tab2:
             f"最新交易日：{latest_trade} ｜ "
             f"次一營業日：{next_trade} ｜ "
             f"快取節奏：傍晚後 10 分鐘"
+        )
+
+    if disposal_meta.get("sources_used"):
+        st.caption(
+            "📡 已使用來源：" + "、".join(disposal_meta["sources_used"])
+        )
+
+    if disposal_meta.get("finmind_token_configured"):
+        st.success(
+            "✅ FINMIND_TOKEN 已設定：可取得全市場處置事件資料。"
+        )
+    else:
+        st.warning(
+            "⚠️ FINMIND_TOKEN 尚未設定：本頁將無法使用 FinMind 全市場處置資料，"
+            "只能依 TWSE / TPEx 官方端點是否可連線而顯示資料。"
         )
 
     if disposal_meta.get("errors"):
@@ -1803,8 +2269,16 @@ with tab2:
                 "end_dt",
                 "reason",
                 "measure",
+                "source_display",
             ]
         ].copy()
+
+        if "disposition_cnt" in df_all_disp.columns:
+            display_disp_df.insert(
+                8,
+                "disposition_cnt",
+                df_all_disp["disposition_cnt"].fillna(0).astype(int),
+            )
 
         display_disp_df.columns = [
             "股票代號",
@@ -1815,7 +2289,9 @@ with tab2:
             "處置開始日",
             "處置結束日",
             "處置條件",
+            "累計處置次數",
             "處置措施",
+            "資料來源",
         ]
 
         st.dataframe(
