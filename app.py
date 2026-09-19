@@ -2018,6 +2018,38 @@ def analyze_market_regime(df_benchmark):
     return out
 
 
+
+
+def safe_float(value, default=None):
+    """
+    安全地把數值轉成 float；NaN / None / 無法轉換時回傳 default。
+    """
+    try:
+        x = float(value)
+        if pd.isna(x):
+            return default
+        return x
+    except Exception:
+        return default
+
+
+def pct_return(series, periods):
+    """
+    計算最近 periods 個交易期的報酬率。
+    回傳百分比，例如 5.2 表示 +5.2%。
+    """
+    if series is None or len(series) <= periods:
+        return None
+
+    first = pd.to_numeric(series.iloc[-periods - 1], errors="coerce")
+    last = pd.to_numeric(series.iloc[-1], errors="coerce")
+
+    if pd.isna(first) or pd.isna(last) or first == 0:
+        return None
+
+    return (last / first - 1.0) * 100.0
+
+
 def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current_disposal_ids):
     """建立 Market Regime + Peer RS + 52W Historical Momentum 三層資金環境。"""
     ctx = {
