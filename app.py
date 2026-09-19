@@ -29,6 +29,7 @@ st.set_page_config(
 )
 
 TZ_TAIPEI = ZoneInfo("Asia/Taipei")
+APP_VERSION = "v5.1-MarketDailyPR"
 
 
 # ============================================================
@@ -1788,13 +1789,13 @@ with tab1:
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_stock_history_year(stock_id, market_type=""):
-    """取得約一年日線，供 52 週歷史動能使用。"""
+    """取得約兩年日線，供 52 週歷史動能使用。"""
     sid = str(stock_id).strip()
     suffixes = [".TW", ".TWO"] if market_type != "tpex" else [".TWO", ".TW"]
     for suffix in suffixes:
         try:
             df = yf.download(
-                f"{sid}{suffix}", period="1y", progress=False, auto_adjust=False
+                f"{sid}{suffix}", period="2y", progress=False, auto_adjust=False
             )
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
@@ -1814,7 +1815,7 @@ def fetch_stock_history_year(stock_id, market_type=""):
     try:
         dl = get_finmind_loader()
         end_date = get_latest_trade_date()
-        start_date = end_date - datetime.timedelta(days=430)
+        start_date = end_date - datetime.timedelta(days=800)
         df = dl.taiwan_stock_daily(
             stock_id=sid,
             start_date=start_date.strftime("%Y-%m-%d"),
@@ -1912,19 +1913,29 @@ def calc_weekly_momentum_features(df_stock):
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
     df = df.dropna(subset=["date", "close"]).sort_values("date")
-    if len(df) < 120:
-        return out
-
-    weekly_close = df.set_index("date")["close"].resample("W-FRI").last().dropna()
+    # 需要至少約 54 個週報酬：
+    # 本週 + 前週 + 過去 52 個完整週，才稱得上「52週歷史百分位」。
+    weekly_close = (
+        df.set_index("date")["close"]
+        .resample("W-FRI")
+        .last()
+        .dropna()
+    )
     weekly_ret = weekly_close.pct_change().dropna() * 100.0
-    if len(weekly_ret) < 10:
+
+    if len(weekly_ret) < 54:
         return out
 
     current = float(weekly_ret.iloc[-1])
-    previous = float(weekly_ret.iloc[-2]) if len(weekly_ret) >= 2 else None
-    history = weekly_ret.iloc[-53:-1] if len(weekly_ret) >= 54 else weekly_ret.iloc[:-1]
-    history = history.tail(52)
-    percentile = float((history <= current).mean() * 100.0) if len(history) >= 10 else None
+    previous = float(weekly_ret.iloc[-2])
+
+    # 排除目前週，取過去 52 個完整週的報酬分布。
+    history = weekly_ret.iloc[-53:-1].tail(52)
+    percentile = (
+        float((history <= current).mean() * 100.0)
+        if len(history) == 52
+        else None
+    )
     out.update({
         "current_week_return": current,
         "previous_week_return": previous,
@@ -1932,6 +1943,116 @@ def calc_weekly_momentum_features(df_stock):
         "weekly_percentile_52w": percentile,
         "weekly_history_count": int(len(history)),
     })
+    return out
+
+
+
+def calc_market_daily_pr_features(df_stock, df_benchmark, lookback_days=252):
+    """
+    用「加權指數過去 52 週約 252 個交易日的每日漲跌幅分布」，
+    衡量處置股當日漲跌幅落在哪一個 PR。
+
+    核心概念：
+    1. 取處置股最新交易日的日報酬。
+    2. 取加權指數在同一交易日的日報酬。
+    3. 用「之前 252 個大盤交易日報酬」作為基準分布，
+       排除當日資料，避免 look-ahead。
+    4. 算：
+       - 個股在大盤 52W 日報酬分布的 PR
+       - 大盤當日自身 PR
+       - PR Gap = 個股 PR - 大盤當日 PR
+       - 個股當日超額報酬 = 個股報酬 - 大盤報酬
+    """
+    out = {
+        "stock_daily_return": None,
+        "market_daily_return": None,
+        "excess_daily_return": None,
+        "stock_pr_vs_market_52w": None,
+        "market_today_pr": None,
+        "pr_gap": None,
+        "market_daily_history_count": 0,
+    }
+
+    if (
+        df_stock is None or df_stock.empty
+        or df_benchmark is None or df_benchmark.empty
+    ):
+        return out
+
+    stock = df_stock.copy()
+    market = df_benchmark.copy()
+
+    stock["date"] = pd.to_datetime(stock["date"], errors="coerce")
+    market["date"] = pd.to_datetime(market["date"], errors="coerce")
+
+    stock["close"] = pd.to_numeric(stock["close"], errors="coerce")
+    market["close"] = pd.to_numeric(market["close"], errors="coerce")
+
+    stock = (
+        stock.dropna(subset=["date", "close"])
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+    market = (
+        market.dropna(subset=["date", "close"])
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+    if len(stock) < 2 or len(market) < lookback_days + 2:
+        return out
+
+    stock["daily_return"] = stock["close"].pct_change() * 100.0
+    market["daily_return"] = market["close"].pct_change() * 100.0
+
+    stock_latest = stock.iloc[-1]
+    latest_date = stock_latest["date"]
+    stock_ret = safe_float(stock_latest["daily_return"])
+
+    if stock_ret is None:
+        return out
+
+    # 優先找與個股最新交易日相同日期的大盤資料。
+    same_day_market = market[market["date"] == latest_date]
+
+    if not same_day_market.empty:
+        market_latest_idx = same_day_market.index[-1]
+        market_ret = safe_float(same_day_market.iloc[-1]["daily_return"])
+    else:
+        # 若資料日期有一日落差，退回最近一筆市場資料。
+        market_latest_idx = len(market) - 1
+        market_ret = safe_float(market.iloc[-1]["daily_return"])
+
+    if market_ret is None or market_latest_idx < lookback_days + 1:
+        return out
+
+    # 排除當日，使用之前 252 個大盤交易日報酬。
+    history_start = max(1, market_latest_idx - lookback_days)
+    history_end = market_latest_idx
+    market_history = (
+        market.iloc[history_start:history_end]["daily_return"]
+        .dropna()
+        .tail(lookback_days)
+    )
+
+    if len(market_history) < lookback_days:
+        return out
+
+    # PR 定義採「<= current」的 empirical percentile。
+    stock_pr = float((market_history <= stock_ret).mean() * 100.0)
+    market_today_pr = float((market_history <= market_ret).mean() * 100.0)
+
+    out.update(
+        {
+            "stock_daily_return": stock_ret,
+            "market_daily_return": market_ret,
+            "excess_daily_return": stock_ret - market_ret,
+            "stock_pr_vs_market_52w": stock_pr,
+            "market_today_pr": market_today_pr,
+            "pr_gap": stock_pr - market_today_pr,
+            "market_daily_history_count": int(len(market_history)),
+        }
+    )
     return out
 
 
@@ -2063,10 +2184,13 @@ def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current
         "peer_rs_10d": None,
         "peer_rs_20d": None,
         "peer_breadth_5d": None,
-        "current_week_return": None,
-        "previous_week_return": None,
-        "momentum_acceleration": None,
-        "weekly_percentile_52w": None,
+        "stock_daily_return": None,
+        "market_daily_return": None,
+        "excess_daily_return": None,
+        "stock_pr_vs_market_52w": None,
+        "market_today_pr": None,
+        "pr_gap": None,
+        "market_daily_history_count": 0,
         "market_regime_score": 50,
         "market_regime_label": "—",
         "market_regime_5d": None,
@@ -2083,7 +2207,14 @@ def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current
     ctx["market_regime_label"] = regime["label"]
     ctx["market_regime_5d"] = regime["5日報酬"]
     ctx["market_regime_20d"] = regime["20日報酬"]
-    ctx.update(calc_weekly_momentum_features(df_stock))
+    # 使用「大盤過去 52 週每日漲跌幅分布」作為共同基準，
+    # 不再用個股自身的 52 週週報酬 PR。
+    market_pr = calc_market_daily_pr_features(
+        df_stock=df_stock,
+        df_benchmark=df_benchmark,
+        lookback_days=252,
+    )
+    ctx.update(market_pr)
 
     peer_info = official["peer_info"].copy()
     disposal_ids = {str(x).strip() for x in current_disposal_ids}
@@ -2147,8 +2278,13 @@ def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current
     rs10 = score_relative_return(ctx["peer_rs_10d"], 20)
     rs20 = score_relative_return(ctx["peer_rs_20d"], 30)
     breadth = ctx["peer_breadth_5d"] if ctx["peer_breadth_5d"] is not None else 50.0
-    percentile = ctx["weekly_percentile_52w"] if ctx["weekly_percentile_52w"] is not None else 50.0
-    acceleration = score_relative_return(ctx["momentum_acceleration"], 10)
+
+    # PR gap：個股相對大盤 52W 日報酬分布的標準化強弱。
+    pr_gap_score = (
+        max(0.0, min(100.0, 50.0 + ctx["pr_gap"] * 1.0))
+        if ctx["pr_gap"] is not None
+        else 50.0
+    )
 
     vol = None
     if df_stock is not None and len(df_stock) >= 21:
@@ -2159,25 +2295,33 @@ def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current
     volatility_score = score_volatility(vol)
 
     # 初版權重：僅作為試跑設定，尚未由歷史回測校準。
+    # 這版移除「個股自身 52W 週報酬」，
+    # 改用「個股相對大盤 52W 每日報酬分布的 PR Gap」。
     capital_score = (
-        rs5 * 0.20 + rs10 * 0.15 + rs20 * 0.10 + breadth * 0.10
-        + percentile * 0.15 + acceleration * 0.10
-        + float(regime["score"]) * 0.15 + volatility_score * 0.05
+        rs5 * 0.20
+        + rs10 * 0.15
+        + rs20 * 0.10
+        + breadth * 0.10
+        + pr_gap_score * 0.20
+        + float(regime["score"]) * 0.15
+        + volatility_score * 0.10
     )
     ctx["capital_score"] = int(round(max(0.0, min(100.0, capital_score))))
 
-    if ctx["weekly_percentile_52w"] is not None:
-        if ctx["weekly_percentile_52w"] >= 90:
-            ctx["signals"].append("⚠️ 本週報酬處於自身52週極端高分位")
-        elif ctx["weekly_percentile_52w"] >= 75:
-            ctx["signals"].append("📈 本週動能高於自身多數歷史週")
-        elif ctx["weekly_percentile_52w"] <= 25:
-            ctx["signals"].append("🔴 本週動能低於自身多數歷史週")
-    if ctx["momentum_acceleration"] is not None:
-        if ctx["momentum_acceleration"] > 5:
-            ctx["signals"].append("🚀 本週動能相較前週加速")
-        elif ctx["momentum_acceleration"] < -5:
-            ctx["signals"].append("⚠️ 本週動能相較前週減速")
+    if ctx["stock_pr_vs_market_52w"] is not None:
+        if ctx["stock_pr_vs_market_52w"] >= 95:
+            ctx["signals"].append("🚀 個股當日漲跌幅位於大盤52W日報酬95PR以上")
+        elif ctx["stock_pr_vs_market_52w"] >= 80:
+            ctx["signals"].append("📈 個股當日漲跌幅明顯強於大盤歷史常態")
+        elif ctx["stock_pr_vs_market_52w"] <= 20:
+            ctx["signals"].append("🔴 個股當日漲跌幅落在大盤52W低分位")
+
+    if ctx["pr_gap"] is not None:
+        if ctx["pr_gap"] >= 20:
+            ctx["signals"].append("🔥 個股PR至少高於大盤當日PR 20個百分點")
+        elif ctx["pr_gap"] <= -20:
+            ctx["signals"].append("❄️ 個股PR低於大盤當日PR 20個百分點")
+
     ctx["signals"].extend(regime["signals"])
     return ctx
 
@@ -2341,10 +2485,13 @@ def analyze_disposal_event_model(
         "10日族群相對強弱": peer_context.get("peer_rs_10d") if peer_context else None,
         "20日族群相對強弱": peer_context.get("peer_rs_20d") if peer_context else None,
         "族群5日廣度": peer_context.get("peer_breadth_5d") if peer_context else None,
-        "本週報酬": peer_context.get("current_week_return") if peer_context else None,
-        "前週報酬": peer_context.get("previous_week_return") if peer_context else None,
-        "動能加速度": peer_context.get("momentum_acceleration") if peer_context else None,
-        "52週本週報酬百分位": peer_context.get("weekly_percentile_52w") if peer_context else None,
+        "個股當日報酬": peer_context.get("stock_daily_return") if peer_context else None,
+        "大盤當日報酬": peer_context.get("market_daily_return") if peer_context else None,
+        "個股超額報酬": peer_context.get("excess_daily_return") if peer_context else None,
+        "個股對大盤52W日報酬PR": peer_context.get("stock_pr_vs_market_52w") if peer_context else None,
+        "大盤當日PR": peer_context.get("market_today_pr") if peer_context else None,
+        "PR差": peer_context.get("pr_gap") if peer_context else None,
+        "大盤52W日報酬樣本數": peer_context.get("market_daily_history_count") if peer_context else 0,
         "大盤環境分數": peer_context.get("market_regime_score", 50) if peer_context else 50,
         "大盤環境": peer_context.get("market_regime_label", "—") if peer_context else "—",
         "大盤5日報酬": peer_context.get("market_regime_5d") if peer_context else None,
@@ -2373,7 +2520,7 @@ def fetch_taiex_benchmark():
     try:
         df = yf.download(
             "^TWII",
-            period="6mo",
+            period="2y",
             progress=False,
             auto_adjust=False,
         )
@@ -2413,6 +2560,7 @@ def fetch_taiex_benchmark():
 # ============================================================
 with tab2:
     st.title("🚨 全市場處置股動態追蹤與事件型模型分析")
+    st.caption(f"🧩 模型版本：{APP_VERSION}｜本頁使用大盤52週每日漲跌幅 PR，不使用個股自身52週週報酬 PR。")
     st.caption(
         "第 2 分頁為獨立的處置事件模型。處置主資料優先採用 FinMind"
         "全市場處置事件資料，並以 TWSE / TPEx 官方資料驗證；17:00 後"
@@ -2753,13 +2901,22 @@ with tab2:
                     f"**5D上漲廣度：** {fmt_pct(features['族群5日廣度'])}"
                 )
 
-                st.markdown("#### 📊 3. 個股自身 52 週歷史動能")
+                st.markdown("#### 📊 3. 大盤52週每日漲跌幅 PR 相對強弱")
                 st.write(
-                    f"**本週：** {fmt_pct(features['本週報酬'])} ｜ "
-                    f"**前週：** {fmt_pct(features['前週報酬'])} ｜ "
-                    f"**動能加速度：** {fmt_pct(features['動能加速度'])}"
+                    f"**個股當日：** {fmt_pct(features['個股當日報酬'])} ｜ "
+                    f"**大盤當日：** {fmt_pct(features['大盤當日報酬'])} ｜ "
+                    f"**個股超額：** {fmt_pct(features['個股超額報酬'])}"
                 )
-                st.write(f"**本週歷史百分位：** {fmt_pct(features['52週本週報酬百分位'])}")
+                st.write(
+                    f"**個股對大盤52W日報酬 PR：** "
+                    f"{fmt_pct(features['個股對大盤52W日報酬PR'])} ｜ "
+                    f"**大盤當日 PR：** {fmt_pct(features['大盤當日PR'])} ｜ "
+                    f"**PR差：** {fmt_pct(features['PR差'])}"
+                )
+                st.caption(
+                    f"📚 基準樣本：大盤前 {int(features['大盤52W日報酬樣本數']) if features['大盤52W日報酬樣本數'] else 0} "
+                    "個交易日；排除當日，避免 look-ahead。"
+                )
 
                 st.markdown("#### 📌 4. 原事件 / 個股條件")
                 volume_text = f"{features['量能比20MA']:.2f}x" if features["量能比20MA"] is not None else "—"
