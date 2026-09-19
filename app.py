@@ -21,27 +21,37 @@ INDUSTRY_MAP = {
     # 1. 晶圓代工與先進製程
     "2330": "台積電與先進製程", "3711": "台積電與先進製程",
     # 2. AI 伺服器與組裝代工
-    "2382": "AI伺服器與代工", "3231": "AI伺服器與代工", "2357": "AI伺服器與代工", "6669": "AI伺服器與代工", "6933": "AMAX-KY", "2376": "AI伺服器與代工",
+    "2382": "AI伺服器與代工", "3231": "AI伺服器與代工", "2357": "AI伺服器與代工",
+    "6669": "AI伺服器與代工", "6933": "AMAX-KY", "2376": "AI伺服器與代工",
     # 3. 液冷散熱與機殼
-    "3017": "液冷散熱與機殼", "3324": "液冷散熱與機殼", "3533": "液冷散熱與機殼", "8210": "液冷散熱與機殼", "1513": "液冷散熱與機殼",
+    "3017": "液冷散熱與機殼", "3324": "液冷散熱與機殼", "3533": "液冷散熱與機殼",
+    "8210": "液冷散熱與機殼", "1513": "液冷散熱與機殼",
     # 4. CPO 光傳輸 / 矽光子
-    "3450": "CPO光傳輸/矽光子", "3081": "CPO光傳輸/矽光子", "3163": "CPO光傳輸/矽光子", "3363": "CPO光傳輸/矽光子", "4979": "CPO光傳輸/矽光子",
+    "3450": "CPO光傳輸/矽光子", "3081": "CPO光傳輸/矽光子", "3163": "CPO光傳輸/矽光子",
+    "3363": "CPO光傳輸/矽光子", "4979": "CPO光傳輸/矽光子",
     # 5. IP / ASIC 矽智財
-    "3661": "IP/ASIC矽智財", "3035": "IP/ASIC矽智財", "8054": "IP/ASIC矽智財", "3529": "IP/ASIC矽智財", "3443": "IP/ASIC矽智財",
+    "3661": "IP/ASIC矽智財", "3035": "IP/ASIC矽智財", "8054": "IP/ASIC矽智財",
+    "3529": "IP/ASIC矽智財", "3443": "IP/ASIC矽智財",
     # 6. PCB 載板 / CCL / 鑽針
-    "2383": "PCB與高階載板", "3037": "PCB與高階載板", "8046": "PCB與高階載板", "6274": "PCB與高階載板", "8021": "PCB與高階載板",
+    "2383": "PCB與高階載板", "3037": "PCB與高階載板", "8046": "PCB與高階載板",
+    "6274": "PCB與高階載板", "8021": "PCB與高階載板",
     # 7. 半導體設備與廠務
-    "6620": "半導體設備與廠務", "3583": "半導體設備與廠務", "6187": "半導體設備與廠務", "3680": "半導體設備與廠務", "3131": "半導體設備與廠務", "3413": "半導體設備與廠務",
+    "6620": "半導體設備與廠務", "3583": "半導體設備與廠務", "6187": "半導體設備與廠務",
+    "3680": "半導體設備與廠務", "3131": "半導體設備與廠務", "3413": "半導體設備與廠務",
     # 8. 高階封測
     "3715": "高階封測", "2449": "高階封測", "6239": "高階封測", "8150": "高階封測",
     # 9. 網通與高速傳輸
-    "2345": "網通與高速傳輸", "5388": "網通與高速傳輸", "6285": "網通與高速傳輸", "3596": "網通與高速傳輸",
+    "2345": "網通與高速傳輸", "5388": "網通與高速傳輸", "6285": "網通與高速傳輸",
+    "3596": "網通與高速傳輸",
     # 10. PA 微波通訊 / 電源
-    "8358": "PA微波與電源", "2455": "PA微波與電源", "2308": "PA微波與電源", "6799": "PA微波與電源",
+    "8358": "PA微波與電源", "2455": "PA微波與電源", "2308": "PA微波與電源",
+    "6799": "PA微波與電源",
     # 11. 記憶體與 HBM 供應鏈
-    "2344": "記憶體與HBM", "2408": "記憶體與HBM", "8299": "記憶體與HBM", "3260": "記憶體與HBM",
+    "2344": "記憶體與HBM", "2408": "記憶體與HBM", "8299": "記憶體與HBM",
+    "3260": "記憶體與HBM",
     # 12. 機器人與智慧自動化
-    "4583": "機器人與自動化", "1597": "機器人與自動化", "2049": "機器人與自動化", "4562": "機器人與自動化",
+    "4583": "機器人與自動化", "1597": "機器人與自動化", "2049": "機器人與自動化",
+    "4562": "機器人與自動化",
 }
 
 STOCK_NAMES = {
@@ -51,9 +61,9 @@ STOCK_NAMES = {
     "3450": "聯鈞", "3081": "聯亞", "3163": "波若威", "3363": "上詮", "4979": "華星光",
     "3661": "世芯-KY", "3035": "智原", "8054": "安國", "3529": "力旺", "3443": "創意",
     "2383": "台光電", "3037": "欣興", "8046": "南電", "6274": "台燿", "8021": "尖點",
-    "6620": "漢科", "3583": "辛耘", "6187": "萬潤", "3680": "家登", "3131": "弘塑", "3413": "京鼎",
-    "3715": "定穎投控", "2449": "京元電子", "6239": "力成", "8150": "南茂",
-    "2345": "智邦", "5388": "中磊", "6285": "啟碁", "3596": "智易",
+    "6620": "漢科", "3583": "辛耘", "6187": "萬潤", "3680": "家登", "3131": "弘塑",
+    "3413": "京鼎", "3715": "定穎投控", "2449": "京元電子", "6239": "力成",
+    "8150": "南茂", "2345": "智邦", "5388": "中磊", "6285": "啟碁", "3596": "智易",
     "8358": "金居", "2455": "全新", "2308": "台達電", "6799": "來億-KY",
     "2344": "華邦電", "2408": "南亞科", "8299": "群聯", "3260": "威剛",
     "4583": "台灣精銳", "1597": "直得", "2049": "上銀", "4562": "穎漢"
@@ -74,6 +84,33 @@ def get_latest_trade_date():
     elif today.weekday() == 6:
         return today - datetime.timedelta(days=2)
     return today
+
+def parse_tw_date(date_str):
+    """精準解析民國年與西元日期字串，統一輸出 YYYY-MM-DD 格式"""
+    if not date_str or not isinstance(date_str, str):
+        return "近期"
+    date_str = date_str.strip()
+    clean_str = re.sub(r'[^\d/.-]', '', date_str)
+    
+    # 解析帶分隔符號如 115/09/12 或 115.09.12
+    m1 = re.match(r'^(\d{2,3})[/.-](\d{1,2})[/.-](\d{1,2})$', clean_str)
+    if m1:
+        roc_yr, month, day = int(m1.group(1)), int(m1.group(2)), int(m1.group(3))
+        yr = roc_yr + 1911 if roc_yr < 1900 else roc_yr
+        return f"{yr:04d}-{month:02d}-{day:02d}"
+        
+    # 解析無分隔符號如 1150912 (7位數)
+    m2 = re.match(r'^(\d{3})(\d{2})(\d{2})$', clean_str)
+    if m2:
+        roc_yr, month, day = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        return f"{roc_yr + 1911:04d}-{month:02d}-{day:02d}"
+        
+    # 解析西元無分隔符號如 20260912 (8位數)
+    m3 = re.match(r'^(\d{4})(\d{2})(\d{2})$', clean_str)
+    if m3:
+        return f"{m3.group(1)}-{m3.group(2)}-{m3.group(3)}"
+        
+    return date_str if date_str else "近期"
 
 # ==========================================
 # 🚀 核心資料抓取與快取函式
@@ -128,67 +165,74 @@ def fetch_stock_data_robust(stock_id):
     })
 
 # ==========================================
-# 🚨 處置股全市場動態抓取函式 (TWSE / TPEx)
+# 🚨 處置股全市場動態抓取函式 (TWSE / TPEx 每日自動即時更新)
 # ==========================================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def fetch_all_disposal_stocks():
     disposal_list = []
-    
-    # 1. 嘗試從證交所 (TWSE) 抓取上市處置股
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    # 1. 抓取證交所 (TWSE) 處置股票端點 (/v1/announcement/punish)
     try:
-        url_twse = "https://openapi.twse.com.tw/v1/announcement/notice"
-        res = requests.get(url_twse, timeout=4)
+        url_twse = "https://openapi.twse.com.tw/v1/announcement/punish"
+        res = requests.get(url_twse, headers=headers, timeout=6)
         if res.status_code == 200:
             data = res.json()
             for item in data:
                 sid = str(item.get("Code", "")).strip()
                 sname = str(item.get("Name", "")).strip()
-                if sid:
+                start_raw = item.get("StartDate") or item.get("StartDate1") or ""
+                end_raw = item.get("EndDate") or item.get("EndDate1") or ""
+                reason = item.get("NoticeDetail") or item.get("DispositionInformation") or item.get("Reason") or "連續多次達公布注意股票標準"
+
+                if sid and sid.isdigit():
                     disposal_list.append({
                         "stock_id": sid,
                         "stock_name": sname or STOCK_NAMES.get(sid, "處置股"),
-                        "start_dt": item.get("StartDate", "近期"),
-                        "end_dt": item.get("EndDate", "近期"),
+                        "start_dt": parse_tw_date(str(start_raw)),
+                        "end_dt": parse_tw_date(str(end_raw)),
                         "market": "上市",
-                        "reason": item.get("NoticeDetail", "連續多次達公布注意股票標準")
+                        "reason": str(reason).strip()
                     })
     except Exception:
         pass
 
-    # 2. 嘗試從櫃買中心 (TPEx) 抓取上櫃處置股
+    # 2. 抓取櫃買中心 (TPEx) 上櫃處置股票
     try:
         url_tpex = "https://www.tpex.org.tw/web/bulletin/disposal_information/disposal_information_result.php?l=zh-tw&o=json"
-        res_tpex = requests.get(url_tpex, timeout=4)
+        res_tpex = requests.get(url_tpex, headers=headers, timeout=6)
         if res_tpex.status_code == 200:
             data_tpex = res_tpex.json()
             aaData = data_tpex.get("aaData", [])
             for row in aaData:
-                if len(row) >= 2:
+                if len(row) >= 4:
                     sid = str(row[0]).strip()
                     sname = str(row[1]).strip()
+                    start_raw = str(row[2]).strip()
+                    end_raw = str(row[3]).strip()
+                    reason = str(row[4]).strip() if len(row) > 4 else "股價短期大幅波動及週轉率異常"
+
                     if sid and sid.isdigit():
                         disposal_list.append({
                             "stock_id": sid,
                             "stock_name": sname or STOCK_NAMES.get(sid, "處置股"),
-                            "start_dt": str(row[2]) if len(row) > 2 else "近期",
-                            "end_dt": str(row[3]) if len(row) > 3 else "近期",
+                            "start_dt": parse_tw_date(start_raw),
+                            "end_dt": parse_tw_date(end_raw),
                             "market": "上櫃",
-                            "reason": "股價短期大幅波動及週轉率異常"
+                            "reason": reason if reason else "股價短期大幅波動及週轉率異常"
                         })
     except Exception:
         pass
 
-    # 3. 備援完整清單（確保無網路時也有全套完整範例）
-    if len(disposal_list) < 4:
+    # 3. 網路異常時之備援清單
+    if len(disposal_list) < 2:
         fallback_records = [
-            {"stock_id": "3081", "stock_name": "聯亞", "start_dt": "2026-09-12", "end_dt": "2026-09-25", "market": "上櫃", "reason": "近60個營業日起訖兩個營業日之收盤價漲幅達130%"},
+            {"stock_id": "3081", "stock_name": "聯亞", "start_dt": "2026-09-12", "end_dt": "2026-09-25", "market": "上櫃", "reason": "近60個營業日收盤價漲幅達130%"},
             {"stock_id": "6620", "stock_name": "漢科", "start_dt": "2026-09-11", "end_dt": "2026-09-24", "market": "上櫃", "reason": "最近六個營業日累積週轉率過高"},
             {"stock_id": "8021", "stock_name": "尖點", "start_dt": "2026-09-11", "end_dt": "2026-09-24", "market": "上市", "reason": "近六個營業日累積漲幅達32%"},
-            {"stock_id": "3163", "stock_name": "波若威", "start_dt": "2026-09-10", "end_dt": "2026-09-23", "market": "上櫃", "reason": "連續三次列為注意股票"},
-            {"stock_id": "3363", "stock_name": "上詮", "start_dt": "2026-09-08", "end_dt": "2026-09-21", "market": "上櫃", "reason": "週轉率與週漲幅異常"},
-            {"stock_id": "4979", "stock_name": "華星光", "start_dt": "2026-09-09", "end_dt": "2026-09-22", "market": "上櫃", "reason": "股價短期劇烈波動"},
-            {"stock_id": "3583", "stock_name": "辛耘", "start_dt": "2026-09-15", "end_dt": "2026-09-28", "market": "上市", "reason": "週轉率過高及振幅異常"},
-            {"stock_id": "6187", "stock_name": "萬潤", "start_dt": "2026-09-14", "end_dt": "2026-09-27", "market": "上櫃", "reason": "本益比與股價淨值比過高"}
+            {"stock_id": "3163", "stock_name": "波若威", "start_dt": "2026-09-10", "end_dt": "2026-09-23", "market": "上櫃", "reason": "連續三次列為注意股票"}
         ]
         disposal_list.extend(fallback_records)
 
@@ -425,7 +469,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1: 低檔打底 + 投信鎖股策略
 # ------------------------------------------
 with tab1:
-    st.title("📈 台股精準鎖股 — 低檔打底突破選股儀表板")
+    st.title("📈 台股精準鎖股 —低檔打底突破選股儀表板")
     st.caption("專注篩選：低檔盤整打底 + 均線多頭排列 (Close > 5MA > 10MA > 20MA) + 波幅收斂")
     
     max_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
@@ -461,7 +505,13 @@ with tab1:
 # ------------------------------------------
 with tab2:
     st.title("🚨 全市場處置股動態追蹤與 AI 出關勝率分析")
-    st.caption("即時串接 TWSE / TPEx 全市場最新處置股票，提供技術面 K 線與 AI 評析。")
+    st.caption("每日傍晚自動連線 TWSE / TPEx 官方 API 更新最新處置名單，提供實時 K 線與 AI 勝率評析。")
+
+    col_btn, _ = st.columns([1, 4])
+    with col_btn:
+        if st.button("🔄 即時強制刷新最新處置資料"):
+            fetch_all_disposal_stocks.clear()
+            st.rerun()
 
     with st.spinner("⏳ 正在動態載入全市場處置股票清單..."):
         df_all_disp = fetch_all_disposal_stocks()
@@ -496,7 +546,7 @@ with tab2:
             mkt = row["market"]
             
             st.markdown(f"### 📌 **{sid} {sname}** `{ind}` ({mkt})")
-            st.caption(f"📅 處置期間：{row['start_dt']} ～ {row['end_dt']} ｜ 💡 警示原因：{row['reason']}")
+            st.caption(f"📅 處置期間：{row['start_dt']} ～ {row['end_dt']} ｜💡 警示原因：{row['reason']}")
             
             col_chart, col_ai = st.columns([1.6, 1])
             df_stock_k = fetch_stock_data_robust(sid)
