@@ -1162,7 +1162,7 @@ def analyze_post_disposal_ai(
         else df_sorted["close"].mean()
     )
 
-    high_60 = df_sorted["max"].max()
+    high_60 = df_sorted["max"].tail(60).max()
 
     sector_res = analyze_ai_sector_relative_strength(stock_id)
 
