@@ -2258,27 +2258,34 @@ with tab2:
         # ----------------------------------------------------
         st.subheader("📋 官方處置股票完整總覽")
 
-        display_disp_df = df_all_disp[
-            [
-                "stock_id",
-                "stock_name",
-                "market",
-                "status",
-                "announce_date",
-                "start_dt",
-                "end_dt",
-                "reason",
-                "measure",
+        # 固定建立 11 欄，避免某個資料來源沒有 disposition_cnt 時，
+        # 導致 Pandas 出現「Length mismatch」而讓整個 Streamlit App Crash。
+        display_disp_df = pd.DataFrame({
+            "stock_id": df_all_disp.get("stock_id", pd.Series(dtype=str)),
+            "stock_name": df_all_disp.get("stock_name", pd.Series(dtype=str)),
+            "market": df_all_disp.get("market", pd.Series(dtype=str)),
+            "status": df_all_disp.get("status", pd.Series(dtype=str)),
+            "announce_date": df_all_disp.get("announce_date", pd.Series(dtype=str)),
+            "start_dt": df_all_disp.get("start_dt", pd.Series(dtype=str)),
+            "end_dt": df_all_disp.get("end_dt", pd.Series(dtype=str)),
+            "reason": df_all_disp.get("reason", pd.Series(dtype=str)),
+            "disposition_cnt": (
+                pd.to_numeric(
+                    df_all_disp.get(
+                        "disposition_cnt",
+                        pd.Series(index=df_all_disp.index, dtype=float),
+                    ),
+                    errors="coerce",
+                )
+                .fillna(0)
+                .astype(int)
+            ),
+            "measure": df_all_disp.get("measure", pd.Series(dtype=str)),
+            "source_display": df_all_disp.get(
                 "source_display",
-            ]
-        ].copy()
-
-        if "disposition_cnt" in df_all_disp.columns:
-            display_disp_df.insert(
-                8,
-                "disposition_cnt",
-                df_all_disp["disposition_cnt"].fillna(0).astype(int),
-            )
+                pd.Series(index=df_all_disp.index, dtype=str),
+            ),
+        })
 
         display_disp_df.columns = [
             "股票代號",
