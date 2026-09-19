@@ -1535,12 +1535,22 @@ with tab2:
             df_stock_k = fetch_stock_data_robust(sid)
 
             with col_chart:
+                # 每一檔處置股的 Plotly 元件必須有唯一 key，
+                # 否則 Streamlit 在 for 迴圈產生多張圖時會觸發
+                # StreamlitDuplicateElementId。
+                chart_key = (
+                    f"disposal_kline_{sid}_"
+                    f"{row['start_dt']}_{row['end_dt']}_"
+                    f"{row['status']}"
+                )
+
                 st.plotly_chart(
                     draw_kline(
                         df_stock_k,
                         f"{sid} {sname} ({ind})",
                     ),
                     use_container_width=True,
+                    key=chart_key,
                 )
 
             with col_ai:
@@ -1665,6 +1675,7 @@ with tab3:
     st.plotly_chart(
         fig_pie,
         use_container_width=True,
+        key="ai_sector_pie_chart",
     )
 
     st.markdown("---")
@@ -1746,6 +1757,7 @@ with tab3:
     st.plotly_chart(
         fig_tree,
         use_container_width=True,
+        key="ai_supply_chain_treemap",
     )
 
     st.markdown("---")
