@@ -817,8 +817,11 @@ def fetch_finmind_stock_market_map():
             subset=["stock_id"], keep="last"
         )
 
-        info = info[["stock_id", "stock_name", "type"]].copy()
+        if "industry_category" not in info.columns:
+            info["industry_category"] = ""
+        info = info[["stock_id", "stock_name", "type", "industry_category"]].copy()
         info["stock_id"] = info["stock_id"].astype(str).str.strip()
+        info["industry_category"] = info["industry_category"].fillna("").astype(str).str.strip()
         return info
 
     except Exception:
@@ -1779,24 +1782,382 @@ with tab1:
 
 
 # ============================================================
-# TAB 2 專用：事件型處置模型
-# 不再把固定分數硬轉成 82% / 70% / 45% 勝率。
-# 真正勝率需由歷史處置事件逐筆回測後校準。
 # ============================================================
+# TAB 2 專用：事件型處置模型 + 三層相對強弱
+# ============================================================
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_stock_history_year(stock_id, market_type=""):
+    """取得約一年日線，供 52 週歷史動能使用。"""
+    sid = str(stock_id).strip()
+    suffixes = [".TW", ".TWO"] if market_type != "tpex" else [".TWO", ".TW"]
+    for suffix in suffixes:
+        try:
+            df = yf.download(
+                f"{sid}{suffix}", period="1y", progress=False, auto_adjust=False
+            )
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if df is not None and not df.empty and "Close" in df.columns:
+                df = df.reset_index().rename(columns={
+                    "Date": "date", "Open": "open", "High": "max",
+                    "Low": "min", "Close": "close", "Volume": "Trading_Volume",
+                })
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df["close"] = pd.to_numeric(df["close"], errors="coerce")
+                df = df.dropna(subset=["date", "close"]).sort_values("date")
+                if len(df) >= 80:
+                    return df.reset_index(drop=True)
+        except Exception:
+            pass
+
+    try:
+        dl = get_finmind_loader()
+        end_date = get_latest_trade_date()
+        start_date = end_date - datetime.timedelta(days=430)
+        df = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+        )
+        if df is not None and not df.empty:
+            df = df.copy()
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            return df.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_peer_price_data(peer_ids, start_date, end_date):
+    """批次取得同族群日線；批次失敗才小量 fallback。"""
+    peer_ids = tuple(sorted({str(x).strip() for x in peer_ids if str(x).strip()}))
+    if not peer_ids:
+        return pd.DataFrame()
+
+    try:
+        dl = get_finmind_loader()
+        df = dl.taiwan_stock_daily(
+            stock_id_list=list(peer_ids),
+            start_date=start_date,
+            end_date=end_date,
+            use_async=True,
+        )
+        if df is not None and not df.empty:
+            df = df.copy()
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df["stock_id"] = df["stock_id"].astype(str).str.strip()
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            return df.dropna(subset=["date", "close"])[["date", "stock_id", "close"]].sort_values(["stock_id", "date"]).reset_index(drop=True)
+    except Exception:
+        pass
+
+    frames = []
+    start_ts, end_ts = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    for sid in list(peer_ids[:40]):
+        df = fetch_stock_history_year(sid)
+        if df is None or df.empty:
+            continue
+        df = df[(df["date"] >= start_ts) & (df["date"] <= end_ts)][["date", "close"]].copy()
+        if not df.empty:
+            df["stock_id"] = sid
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True).sort_values(["stock_id", "date"]).reset_index(drop=True)
+
+
+def get_official_industry_context(stock_id, market):
+    """由 FinMind TaiwanStockInfo 取得目前官方產業分類與同市場 peer。"""
+    info = fetch_finmind_stock_market_map()
+    if info is None or info.empty:
+        return {"industry_category": "", "market_type": "", "peer_info": pd.DataFrame()}
+
+    sid = str(stock_id).strip()
+    target = info[info["stock_id"] == sid]
+    if target.empty:
+        return {
+            "industry_category": "",
+            "market_type": "twse" if market == "上市" else "tpex",
+            "peer_info": pd.DataFrame(),
+        }
+
+    row = target.iloc[-1]
+    industry = str(row.get("industry_category", "")).strip()
+    market_type = str(row.get("type", "")).strip()
+    excluded = {"ETF", "大盤", "Index", "所有證券", "權證"}
+    peers = info[
+        info["industry_category"].astype(str).str.strip().eq(industry)
+        & info["type"].astype(str).str.strip().eq(market_type)
+        & ~info["industry_category"].astype(str).str.strip().isin(excluded)
+        & info["stock_id"].astype(str).str.fullmatch(r"\d{4}")
+    ].copy()
+    return {"industry_category": industry, "market_type": market_type, "peer_info": peers}
+
+
+def calc_weekly_momentum_features(df_stock):
+    """本週報酬、前週報酬、動能加速度、52週歷史週報酬百分位。"""
+    out = {
+        "current_week_return": None,
+        "previous_week_return": None,
+        "momentum_acceleration": None,
+        "weekly_percentile_52w": None,
+        "weekly_history_count": 0,
+    }
+    if df_stock is None or df_stock.empty:
+        return out
+    df = df_stock.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df = df.dropna(subset=["date", "close"]).sort_values("date")
+    if len(df) < 120:
+        return out
+
+    weekly_close = df.set_index("date")["close"].resample("W-FRI").last().dropna()
+    weekly_ret = weekly_close.pct_change().dropna() * 100.0
+    if len(weekly_ret) < 10:
+        return out
+
+    current = float(weekly_ret.iloc[-1])
+    previous = float(weekly_ret.iloc[-2]) if len(weekly_ret) >= 2 else None
+    history = weekly_ret.iloc[-53:-1] if len(weekly_ret) >= 54 else weekly_ret.iloc[:-1]
+    history = history.tail(52)
+    percentile = float((history <= current).mean() * 100.0) if len(history) >= 10 else None
+    out.update({
+        "current_week_return": current,
+        "previous_week_return": previous,
+        "momentum_acceleration": current - previous if previous is not None else None,
+        "weekly_percentile_52w": percentile,
+        "weekly_history_count": int(len(history)),
+    })
+    return out
+
+
+def score_relative_return(value, full_scale=15.0):
+    """初版 heuristic：相對報酬映射到 0-100，待回測校準。"""
+    if value is None:
+        return 50.0
+    return float(max(0.0, min(100.0, 50.0 + (value / full_scale) * 50.0)))
+
+
+def score_volatility(volatility20):
+    if volatility20 is None:
+        return 50.0
+    if volatility20 <= 35:
+        return 90.0
+    if volatility20 <= 50:
+        return 75.0
+    if volatility20 <= 70:
+        return 60.0
+    if volatility20 <= 90:
+        return 40.0
+    if volatility20 <= 110:
+        return 20.0
+    return 5.0
+
+
+def analyze_market_regime(df_benchmark):
+    """加權指數只負責判斷 Market Regime，不做個股 peer RS。"""
+    out = {
+        "score": 50.0,
+        "label": "↔️ 震盪",
+        "5日報酬": None,
+        "20日報酬": None,
+        "signals": [],
+    }
+    if df_benchmark is None or df_benchmark.empty:
+        out["signals"].append("⚠️ 無法取得加權指數資料")
+        return out
+
+    bm = df_benchmark.copy().sort_values("date")
+    bm["close"] = pd.to_numeric(bm["close"], errors="coerce")
+    bm = bm.dropna(subset=["close"])
+    if len(bm) < 60:
+        return out
+
+    ret5 = pct_return(bm["close"], 5)
+    ret20 = pct_return(bm["close"], 20)
+    ma20 = float(bm["close"].tail(20).mean())
+    ma60 = float(bm["close"].tail(60).mean())
+    latest = float(bm["close"].iloc[-1])
+
+    score = 50.0
+    if ret5 is not None:
+        score += 15 if ret5 > 0 else -15
+        out["signals"].append(f"大盤5日：{ret5:+.2f}%")
+    if ret20 is not None:
+        score += 15 if ret20 > 0 else -15
+        out["signals"].append(f"大盤20日：{ret20:+.2f}%")
+    if latest > ma20:
+        score += 10
+        out["signals"].append("大盤 > 20MA")
+    else:
+        score -= 10
+        out["signals"].append("大盤 < 20MA")
+    if ma20 > ma60:
+        score += 10
+        out["signals"].append("20MA > 60MA")
+    else:
+        score -= 10
+        out["signals"].append("20MA < 60MA")
+
+    score = max(0.0, min(100.0, score))
+    if score >= 75:
+        label = "🔥 Risk-On"
+    elif score >= 60:
+        label = "↗️ 偏多"
+    elif score >= 40:
+        label = "↔️ 震盪"
+    elif score >= 25:
+        label = "↘️ 偏空"
+    else:
+        label = "🔴 Risk-Off"
+    out.update({"score": round(score), "label": label, "5日報酬": ret5, "20日報酬": ret20})
+    return out
+
+
+def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current_disposal_ids):
+    """建立 Market Regime + Peer RS + 52W Historical Momentum 三層資金環境。"""
+    ctx = {
+        "industry_category": "",
+        "peer_count": 0,
+        "peer_data_count": 0,
+        "peer_median_5d": None,
+        "peer_median_10d": None,
+        "peer_median_20d": None,
+        "peer_rs_5d": None,
+        "peer_rs_10d": None,
+        "peer_rs_20d": None,
+        "peer_breadth_5d": None,
+        "current_week_return": None,
+        "previous_week_return": None,
+        "momentum_acceleration": None,
+        "weekly_percentile_52w": None,
+        "market_regime_score": 50,
+        "market_regime_label": "—",
+        "market_regime_5d": None,
+        "market_regime_20d": None,
+        "capital_score": 50,
+        "signals": [],
+        "peer_names": [],
+    }
+
+    official = get_official_industry_context(stock_id, market)
+    ctx["industry_category"] = official["industry_category"] or "官方產業分類待取得"
+    regime = analyze_market_regime(df_benchmark)
+    ctx["market_regime_score"] = regime["score"]
+    ctx["market_regime_label"] = regime["label"]
+    ctx["market_regime_5d"] = regime["5日報酬"]
+    ctx["market_regime_20d"] = regime["20日報酬"]
+    ctx.update(calc_weekly_momentum_features(df_stock))
+
+    peer_info = official["peer_info"].copy()
+    disposal_ids = {str(x).strip() for x in current_disposal_ids}
+    if not peer_info.empty:
+        peer_info = peer_info[
+            ~peer_info["stock_id"].astype(str).str.strip().isin(disposal_ids)
+            & (peer_info["stock_id"].astype(str).str.strip() != str(stock_id).strip())
+        ].copy()
+
+    peer_ids = peer_info["stock_id"].astype(str).str.strip().tolist() if not peer_info.empty else []
+    ctx["peer_count"] = len(peer_ids)
+    ctx["peer_names"] = [f"{r['stock_id']} {r['stock_name']}" for _, r in peer_info.head(80).iterrows()]
+
+    if not peer_ids:
+        ctx["signals"].append("⚠️ 找不到同市場同官方產業的未處置 peer")
+    else:
+        start_date = (get_latest_trade_date() - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+        end_date = get_latest_trade_date().strftime("%Y-%m-%d")
+        peer_prices = fetch_peer_price_data(peer_ids, start_date, end_date)
+        if peer_prices is not None and not peer_prices.empty:
+            rows = []
+            for pid, g in peer_prices.groupby("stock_id"):
+                g = g.sort_values("date")
+                closes = g["close"]
+                rows.append({
+                    "stock_id": pid,
+                    "ret5": pct_return(closes, 5),
+                    "ret10": pct_return(closes, 10),
+                    "ret20": pct_return(closes, 20),
+                })
+            peer_ret = pd.DataFrame(rows)
+            peer_ret = peer_ret.dropna(how="all", subset=["ret5", "ret10", "ret20"])
+            ctx["peer_data_count"] = len(peer_ret)
+            if not peer_ret.empty:
+                ctx["peer_median_5d"] = safe_float(peer_ret["ret5"].median())
+                ctx["peer_median_10d"] = safe_float(peer_ret["ret10"].median())
+                ctx["peer_median_20d"] = safe_float(peer_ret["ret20"].median())
+                stock_close = pd.to_numeric(df_stock["close"], errors="coerce")
+                stock_ret5, stock_ret10, stock_ret20 = pct_return(stock_close, 5), pct_return(stock_close, 10), pct_return(stock_close, 20)
+                if stock_ret5 is not None and ctx["peer_median_5d"] is not None:
+                    ctx["peer_rs_5d"] = stock_ret5 - ctx["peer_median_5d"]
+                if stock_ret10 is not None and ctx["peer_median_10d"] is not None:
+                    ctx["peer_rs_10d"] = stock_ret10 - ctx["peer_median_10d"]
+                if stock_ret20 is not None and ctx["peer_median_20d"] is not None:
+                    ctx["peer_rs_20d"] = stock_ret20 - ctx["peer_median_20d"]
+                positive = peer_ret["ret5"].dropna() > 0
+                if len(positive):
+                    ctx["peer_breadth_5d"] = float(positive.mean() * 100.0)
+                if ctx["peer_rs_5d"] is not None:
+                    if ctx["peer_rs_5d"] >= 5:
+                        ctx["signals"].append("🔥 個股5日明顯強於未處置同族群")
+                    elif ctx["peer_rs_5d"] <= -5:
+                        ctx["signals"].append("❄️ 個股5日弱於未處置同族群")
+                if ctx["peer_breadth_5d"] is not None:
+                    if ctx["peer_breadth_5d"] >= 70:
+                        ctx["signals"].append("🟢 同族群5日上漲廣度偏高")
+                    elif ctx["peer_breadth_5d"] <= 30:
+                        ctx["signals"].append("🔴 同族群5日上漲廣度偏低")
+
+    rs5 = score_relative_return(ctx["peer_rs_5d"], 15)
+    rs10 = score_relative_return(ctx["peer_rs_10d"], 20)
+    rs20 = score_relative_return(ctx["peer_rs_20d"], 30)
+    breadth = ctx["peer_breadth_5d"] if ctx["peer_breadth_5d"] is not None else 50.0
+    percentile = ctx["weekly_percentile_52w"] if ctx["weekly_percentile_52w"] is not None else 50.0
+    acceleration = score_relative_return(ctx["momentum_acceleration"], 10)
+
+    vol = None
+    if df_stock is not None and len(df_stock) >= 21:
+        s = pd.to_numeric(df_stock["close"], errors="coerce").dropna()
+        if len(s) >= 21:
+            vol = safe_float(s.pct_change().dropna().tail(20).std() * (252 ** 0.5) * 100)
+    ctx["volatility20"] = vol
+    volatility_score = score_volatility(vol)
+
+    # 初版權重：僅作為試跑設定，尚未由歷史回測校準。
+    capital_score = (
+        rs5 * 0.20 + rs10 * 0.15 + rs20 * 0.10 + breadth * 0.10
+        + percentile * 0.15 + acceleration * 0.10
+        + float(regime["score"]) * 0.15 + volatility_score * 0.05
+    )
+    ctx["capital_score"] = int(round(max(0.0, min(100.0, capital_score))))
+
+    if ctx["weekly_percentile_52w"] is not None:
+        if ctx["weekly_percentile_52w"] >= 90:
+            ctx["signals"].append("⚠️ 本週報酬處於自身52週極端高分位")
+        elif ctx["weekly_percentile_52w"] >= 75:
+            ctx["signals"].append("📈 本週動能高於自身多數歷史週")
+        elif ctx["weekly_percentile_52w"] <= 25:
+            ctx["signals"].append("🔴 本週動能低於自身多數歷史週")
+    if ctx["momentum_acceleration"] is not None:
+        if ctx["momentum_acceleration"] > 5:
+            ctx["signals"].append("🚀 本週動能相較前週加速")
+        elif ctx["momentum_acceleration"] < -5:
+            ctx["signals"].append("⚠️ 本週動能相較前週減速")
+    ctx["signals"].extend(regime["signals"])
+    return ctx
+
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_disposal_chip_data(stock_id, start_date, end_date):
     """取得真實三大法人與融資融券資料。"""
     sid = str(stock_id).strip()
     result = {"institutional": pd.DataFrame(), "margin": pd.DataFrame(), "error": []}
-
     try:
-        dl = DataLoader()
-        inst = dl.taiwan_stock_institutional_investors(
-            stock_id=sid,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        dl = get_finmind_loader()
+        inst = dl.taiwan_stock_institutional_investors(stock_id=sid, start_date=start_date, end_date=end_date)
         if inst is not None and not inst.empty:
             inst = inst.copy()
             inst["date"] = pd.to_datetime(inst["date"], errors="coerce")
@@ -1806,108 +2167,37 @@ def fetch_disposal_chip_data(stock_id, start_date, end_date):
             result["institutional"] = inst
     except Exception as exc:
         result["error"].append(f"三大法人：{exc}")
-
     try:
-        margin = dl.get_data(
+        margin = get_finmind_loader().get_data(
             dataset="TaiwanStockMarginPurchaseShortSale",
-            data_id=sid,
-            start_date=start_date,
-            end_date=end_date,
+            data_id=sid, start_date=start_date, end_date=end_date,
         )
         if margin is not None and not margin.empty:
             margin = margin.copy()
             margin["date"] = pd.to_datetime(margin["date"], errors="coerce")
             for col in [
                 "MarginPurchaseTodayBalance", "ShortSaleTodayBalance",
-                "MarginPurchaseBuy", "MarginPurchaseSell",
-                "ShortSaleBuy", "ShortSaleSell",
+                "MarginPurchaseBuy", "MarginPurchaseSell", "ShortSaleBuy", "ShortSaleSell",
             ]:
                 if col in margin.columns:
                     margin[col] = pd.to_numeric(margin[col], errors="coerce").fillna(0)
             result["margin"] = margin
     except Exception as exc:
         result["error"].append(f"融資融券：{exc}")
-
     return result
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_taiex_benchmark():
-    """取得加權指數作為相對強弱基準；抓不到就回傳空表，不製造假資料。"""
-    try:
-        df = yf.download("^TWII", period="6mo", progress=False, auto_adjust=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if df is None or df.empty:
-            return pd.DataFrame()
-        df = df.reset_index()
-        df.rename(columns={"Date": "date", "Close": "close"}, inplace=True)
-        if "date" not in df.columns or "close" not in df.columns:
-            return pd.DataFrame()
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df["close"] = pd.to_numeric(df["close"], errors="coerce")
-        return df.dropna(subset=["date", "close"])[["date", "close"]].sort_values("date").reset_index(drop=True)
-    except Exception:
-        return pd.DataFrame()
-
-
-def pct_return(series, periods):
-    if series is None or len(series) <= periods:
-        return None
-    first = pd.to_numeric(series.iloc[-periods - 1], errors="coerce")
-    last = pd.to_numeric(series.iloc[-1], errors="coerce")
-    if pd.isna(first) or pd.isna(last) or first == 0:
-        return None
-    return (last / first - 1.0) * 100.0
-
-
-def safe_float(value, default=None):
-    try:
-        x = float(value)
-        return default if pd.isna(x) else x
-    except Exception:
-        return default
-
-
-def fmt_pct(value):
-    return "—" if value is None else f"{value:+.2f}%"
-
-
-def fmt_number(value):
-    return "—" if value is None else f"{value:,.0f}"
-
-
 def analyze_disposal_event_model(
-    df_stock,
-    chip_bundle,
-    df_benchmark,
-    stock_id,
-    market,
-    start_dt,
-    end_dt,
-    reason="",
-    measure="",
+    df_stock, chip_bundle, df_benchmark, peer_context,
+    stock_id, market, start_dt, end_dt, reason="", measure="",
 ):
-    """
-    第二分頁專用事件模型：
-    1. 處置事件本身
-    2. 價格動能
-    3. 均線/位置
-    4. 量價結構
-    5. 三大法人
-    6. 融資融券
-    7. 相對大盤強弱
-    8. 波動風險
-    """
-    _ = (stock_id, market, start_dt, end_dt)
+    """事件層 60% + 三層資金環境 40%；權重待歷史回測校準。"""
+    _ = (df_benchmark, stock_id, market, start_dt, end_dt)
     result = {
-        "score": 50,
-        "risk_level": "中性",
-        "direction": "↔️ 中性觀察",
-        "signals": [],
-        "features": {},
+        "score": 50, "event_score": 50,
+        "capital_score": int(peer_context.get("capital_score", 50)) if peer_context else 50,
+        "risk_level": "中性", "direction": "↔️ 中性觀察", "signals": [], "features": {},
     }
-
     if df_stock is None or df_stock.empty:
         result["risk_level"] = "資料不足"
         result["signals"].append("⚠️ 無法取得個股歷史價格")
@@ -1927,186 +2217,120 @@ def analyze_disposal_event_model(
     high60 = safe_float(df["max"].tail(60).max()) if "max" in df.columns else None
     vol20 = safe_float(df["Trading_Volume"].tail(20).mean()) if "Trading_Volume" in df.columns else None
     latest_vol = safe_float(df["Trading_Volume"].iloc[-1]) if "Trading_Volume" in df.columns else None
-
-    ret5 = pct_return(df["close"], 5)
-    ret10 = pct_return(df["close"], 10)
-    ret20 = pct_return(df["close"], 20)
+    ret5, ret10, ret20 = pct_return(df["close"], 5), pct_return(df["close"], 10), pct_return(df["close"], 20)
     bias20 = ((latest - ma20) / ma20 * 100.0) if latest is not None and ma20 else None
-
     volatility20 = None
     if len(df) >= 21:
-        daily_ret = df["close"].pct_change().dropna().tail(20)
-        volatility20 = safe_float(daily_ret.std() * (252 ** 0.5) * 100)
+        volatility20 = safe_float(df["close"].pct_change().dropna().tail(20).std() * (252 ** 0.5) * 100)
 
-    score = 50
-    reason_text = f"{reason} {measure}".strip()
-
-    if re.search(r"第二次|第2次|二次", measure):
-        score -= 8
-        result["signals"].append("⚠️ 第二次處置：事件風險提高")
-    elif re.search(r"第三次|第3次|三次|第四次|第4次", measure):
-        score -= 15
-        result["signals"].append("🔴 多次處置：事件風險顯著提高")
-    elif re.search(r"第一次|第1次|首次", measure):
-        score += 2
-        result["signals"].append("🟢 第一次處置")
-
-    if "最近十個營業日已有六次" in reason_text:
-        score -= 4
-        result["signals"].append("⚠️ 10日內注意交易次數偏高")
-    if "連續五次" in reason_text or "連續五個營業日" in reason_text:
-        score -= 3
-        result["signals"].append("⚠️ 連續注意交易事件")
-    if "當日沖銷" in reason_text:
-        score -= 2
-        result["signals"].append("⚠️ 涉及當沖異常條件")
-
+    score = 50.0
+    text_all = f"{reason} {measure}".strip()
+    if re.search(r"第二次|第2次|二次", measure): score -= 8; result["signals"].append("⚠️ 第二次處置：事件風險提高")
+    elif re.search(r"第三次|第3次|三次|第四次|第4次", measure): score -= 15; result["signals"].append("🔴 多次處置：事件風險顯著提高")
+    elif re.search(r"第一次|第1次|首次", measure): score += 2; result["signals"].append("🟢 第一次處置")
+    if "最近十個營業日已有六次" in text_all: score -= 4; result["signals"].append("⚠️ 10日內注意交易次數偏高")
+    if "連續五次" in text_all or "連續五個營業日" in text_all: score -= 3; result["signals"].append("⚠️ 連續注意交易事件")
+    if "當日沖銷" in text_all: score -= 2; result["signals"].append("⚠️ 涉及當沖異常條件")
     if ret5 is not None:
-        if ret5 >= 8:
-            score += 10
-            result["signals"].append("🚀 5日動能強")
-        elif ret5 >= 3:
-            score += 5
-            result["signals"].append("📈 5日維持正向動能")
-        elif ret5 <= -8:
-            score -= 10
-            result["signals"].append("🔴 5日跌幅偏大")
-        elif ret5 < 0:
-            score -= 4
-
+        if ret5 >= 8: score += 10; result["signals"].append("🚀 5日動能強")
+        elif ret5 >= 3: score += 5; result["signals"].append("📈 5日維持正向動能")
+        elif ret5 <= -8: score -= 10; result["signals"].append("🔴 5日跌幅偏大")
+        elif ret5 < 0: score -= 4
     if ret20 is not None:
-        if ret20 >= 15:
-            score += 6
-        elif ret20 <= -15:
-            score -= 8
-
+        if ret20 >= 15: score += 6
+        elif ret20 <= -15: score -= 8
     if ma5 and ma20:
-        if latest > ma5 > ma20:
-            score += 8
-            result["signals"].append("🟢 短中期均線多頭")
-        elif latest < ma20:
-            score -= 8
-            result["signals"].append("🔴 跌破20MA")
-
-    if ma60 is not None and ma20:
-        score += 4 if ma20 > ma60 else -4
-
+        if latest > ma5 > ma20: score += 8; result["signals"].append("🟢 短中期均線多頭")
+        elif latest < ma20: score -= 8; result["signals"].append("🔴 跌破20MA")
+    if ma60 is not None and ma20: score += 4 if ma20 > ma60 else -4
     if high60:
         distance_high60 = (latest / high60 - 1) * 100
-        if distance_high60 >= -5:
-            score += 5
-            result["signals"].append("🚀 接近60日高點")
-        elif distance_high60 <= -20:
-            score -= 4
+        if distance_high60 >= -5: score += 5; result["signals"].append("🚀 接近60日高點")
+        elif distance_high60 <= -20: score -= 4
 
     volume_ratio = None
     if latest_vol is not None and vol20 and vol20 > 0:
         volume_ratio = latest_vol / vol20
-        if volume_ratio >= 1.5:
-            score += 6
-            result["signals"].append("⚡ 出關附近量能明顯放大")
-        elif volume_ratio < 0.7:
-            score += 2
-            result["signals"].append("🟢 量縮整理")
-        elif volume_ratio > 2.5:
-            score -= 4
-            result["signals"].append("⚠️ 量能過度爆量")
+        if volume_ratio >= 1.5: score += 6; result["signals"].append("⚡ 出關附近量能明顯放大")
+        elif volume_ratio < 0.7: score += 2; result["signals"].append("🟢 量縮整理")
+        elif volume_ratio > 2.5: score -= 4; result["signals"].append("⚠️ 量能過度爆量")
 
     inst = chip_bundle.get("institutional", pd.DataFrame())
-    inst_5_net = None
-    inst_10_net = None
+    inst_5_net = inst_10_net = None
     if not inst.empty:
-        inst = inst.sort_values("date").copy()
+        inst = inst.sort_values("date")
         net_series = pd.to_numeric(inst["net"], errors="coerce").fillna(0)
-        if len(net_series) >= 5:
-            inst_5_net = safe_float(net_series.tail(5).sum())
-        if len(net_series) >= 10:
-            inst_10_net = safe_float(net_series.tail(10).sum())
+        if len(net_series) >= 5: inst_5_net = safe_float(net_series.tail(5).sum())
+        if len(net_series) >= 10: inst_10_net = safe_float(net_series.tail(10).sum())
         if inst_5_net is not None:
-            if inst_5_net > 0:
-                score += 7
-                result["signals"].append("🟢 法人近5日淨買超")
-            elif inst_5_net < 0:
-                score -= 6
-                result["signals"].append("🔴 法人近5日淨賣超")
+            if inst_5_net > 0: score += 7; result["signals"].append("🟢 法人近5日淨買超")
+            elif inst_5_net < 0: score -= 6; result["signals"].append("🔴 法人近5日淨賣超")
 
     margin = chip_bundle.get("margin", pd.DataFrame())
     margin_change_10 = None
     if not margin.empty and "MarginPurchaseTodayBalance" in margin.columns:
-        margin = margin.sort_values("date").copy()
+        margin = margin.sort_values("date")
         bal = pd.to_numeric(margin["MarginPurchaseTodayBalance"], errors="coerce").fillna(0)
         if len(bal) >= 10 and bal.iloc[-10] != 0:
             margin_change_10 = (bal.iloc[-1] / bal.iloc[-10] - 1) * 100.0
             if ret10 is not None and ret10 > 0 and margin_change_10 > 10:
-                score -= 6
-                result["signals"].append("⚠️ 股價上漲但融資10日增加 >10%")
+                score -= 6; result["signals"].append("⚠️ 股價上漲但融資10日增加 >10%")
             elif margin_change_10 < -5:
-                score += 4
-                result["signals"].append("🟢 融資餘額下降")
-
-    benchmark_5 = benchmark_20 = rs5 = rs20 = None
-    if df_benchmark is not None and not df_benchmark.empty:
-        bm = df_benchmark.copy().sort_values("date")
-        benchmark_5 = pct_return(bm["close"], 5)
-        benchmark_20 = pct_return(bm["close"], 20)
-        if ret5 is not None and benchmark_5 is not None:
-            rs5 = ret5 - benchmark_5
-            if rs5 >= 5:
-                score += 7
-                result["signals"].append("🔥 5日相對大盤強勢")
-            elif rs5 <= -5:
-                score -= 7
-                result["signals"].append("❄️ 5日明顯弱於大盤")
-        if ret20 is not None and benchmark_20 is not None:
-            rs20 = ret20 - benchmark_20
-            if rs20 >= 10:
-                score += 4
-            elif rs20 <= -10:
-                score -= 4
+                score += 4; result["signals"].append("🟢 融資餘額下降")
 
     if volatility20 is not None:
-        if volatility20 >= 100:
-            score -= 8
-            result["signals"].append("🔴 年化波動率極高")
-        elif volatility20 >= 70:
-            score -= 4
-        elif volatility20 <= 35:
-            score += 3
+        if volatility20 >= 100: score -= 8; result["signals"].append("🔴 年化波動率極高")
+        elif volatility20 >= 70: score -= 4
+        elif volatility20 <= 35: score += 3
 
-    score = max(0, min(100, round(score)))
-    if score >= 75:
-        risk_level, direction = "偏多", "🚀 強勢型"
-    elif score >= 60:
-        risk_level, direction = "中性偏多", "📈 偏多觀察"
-    elif score >= 45:
-        risk_level, direction = "中性", "↔️ 震盪觀察"
-    elif score >= 30:
-        risk_level, direction = "中性偏空", "⚠️ 偏空風險"
-    else:
-        risk_level, direction = "高風險", "🔴 弱勢型"
+    event_score = max(0, min(100, round(score)))
+    capital_score = int(peer_context.get("capital_score", 50)) if peer_context else 50
+    total_score = int(round(event_score * 0.60 + capital_score * 0.40))
+    if total_score >= 75: risk_level, direction = "偏多", "🚀 強勢型"
+    elif total_score >= 60: risk_level, direction = "中性偏多", "📈 偏多觀察"
+    elif total_score >= 45: risk_level, direction = "中性", "↔️ 震盪觀察"
+    elif total_score >= 30: risk_level, direction = "中性偏空", "⚠️ 偏空風險"
+    else: risk_level, direction = "高風險", "🔴 弱勢型"
 
-    result["score"] = score
-    result["risk_level"] = risk_level
-    result["direction"] = direction
+    result["signals"].extend(peer_context.get("signals", []) if peer_context else [])
+    result["score"], result["event_score"], result["capital_score"] = total_score, event_score, capital_score
+    result["risk_level"], result["direction"] = risk_level, direction
     result["features"] = {
-        "5日報酬": ret5,
-        "10日報酬": ret10,
-        "20日報酬": ret20,
-        "BIAS20": bias20,
-        "量能比20MA": volume_ratio,
-        "法人5日淨買超": inst_5_net,
-        "法人10日淨買超": inst_10_net,
-        "融資10日變化": margin_change_10,
-        "大盤5日報酬": benchmark_5,
-        "大盤20日報酬": benchmark_20,
-        "5日相對大盤": rs5,
-        "20日相對大盤": rs20,
-        "20日年化波動": volatility20,
+        "5日報酬": ret5, "10日報酬": ret10, "20日報酬": ret20, "BIAS20": bias20,
+        "量能比20MA": volume_ratio, "法人5日淨買超": inst_5_net, "法人10日淨買超": inst_10_net,
+        "融資10日變化": margin_change_10, "20日年化波動": volatility20,
+        "官方產業": peer_context.get("industry_category", "—") if peer_context else "—",
+        "同族群未處置家數": peer_context.get("peer_count", 0) if peer_context else 0,
+        "同族群有資料家數": peer_context.get("peer_data_count", 0) if peer_context else 0,
+        "族群5日中位數": peer_context.get("peer_median_5d") if peer_context else None,
+        "族群10日中位數": peer_context.get("peer_median_10d") if peer_context else None,
+        "族群20日中位數": peer_context.get("peer_median_20d") if peer_context else None,
+        "5日族群相對強弱": peer_context.get("peer_rs_5d") if peer_context else None,
+        "10日族群相對強弱": peer_context.get("peer_rs_10d") if peer_context else None,
+        "20日族群相對強弱": peer_context.get("peer_rs_20d") if peer_context else None,
+        "族群5日廣度": peer_context.get("peer_breadth_5d") if peer_context else None,
+        "本週報酬": peer_context.get("current_week_return") if peer_context else None,
+        "前週報酬": peer_context.get("previous_week_return") if peer_context else None,
+        "動能加速度": peer_context.get("momentum_acceleration") if peer_context else None,
+        "52週本週報酬百分位": peer_context.get("weekly_percentile_52w") if peer_context else None,
+        "大盤環境分數": peer_context.get("market_regime_score", 50) if peer_context else 50,
+        "大盤環境": peer_context.get("market_regime_label", "—") if peer_context else "—",
+        "大盤5日報酬": peer_context.get("market_regime_5d") if peer_context else None,
+        "大盤20日報酬": peer_context.get("market_regime_20d") if peer_context else None,
     }
     return result
 
 
-# ============================================================
+def fmt_pct(value):
+    return "—" if value is None else f"{value:+.2f}%"
+
+
+def fmt_number(value):
+    return "—" if value is None else f"{value:,.0f}"
+
+
+
+
 # TAB 2：全市場處置股（已重寫）
 # ============================================================
 with tab2:
@@ -2114,7 +2338,8 @@ with tab2:
     st.caption(
         "第 2 分頁為獨立的處置事件模型。處置主資料優先採用 FinMind"
         "全市場處置事件資料，並以 TWSE / TPEx 官方資料驗證；17:00 後"
-        "每 10 分鐘刷新，FinMind 官方文件標示處置資料更新視窗約 20:00～23:00。"
+        "每 10 分鐘刷新。Peer RS 使用 FinMind TaiwanStockInfo 的產業分類，"
+        "排除目前處置股後再比較同市場同族群。"
     )
 
     # 自動刷新：
@@ -2189,20 +2414,28 @@ with tab2:
             """
             **本分頁與第五維選股完全分離。**
 
-            模型目前只針對「處置事件 → 出關後表現」設計，使用：
+            **A. 事件 / 個股層**
 
             - 處置次數與處置條件
             - 5 / 10 / 20 日價格動能
             - 5 / 20MA 與 60 日位置
-            - 出關附近量能相對 20 日均量
+            - 出關附近量能
             - 三大法人近 5 / 10 日淨買賣
             - 融資餘額變化
-            - 個股相對加權指數強弱
             - 20 日歷史波動度
 
+            **B. 三層資金環境層**
+
+            1. Market Regime：加權指數只負責判斷大盤環境，不拿它當個股強弱。
+            2. Peer Relative Strength：同官方產業、同市場、排除處置股，使用 5/10/20 日族群中位數、相對強弱與族群廣度。
+            3. Historical Momentum：個股本週相對自身 52 週歷史週報酬百分位，以及本週相對前週的動能加速度。
+
+            初版總分採 **事件層 60% + 資金環境層 40%**；資金環境內部採討論中的 20% / 15% / 10% / 10% / 15% / 10% / 15% / 5% 權重。
+
             **目前刻意不顯示固定「82% / 70% / 45% 勝率」。**
-            在完成逐筆歷史處置事件回測前，分數只代表事件特徵強弱，
-            不把主觀分數偽裝成統計勝率。
+            在完成逐筆歷史處置事件回測前，分數只代表當下事件特徵與資金環境強弱，
+            不把 heuristic 分數偽裝成統計勝率。
+
             """
         )
 
@@ -2366,8 +2599,6 @@ with tab2:
 
             col_chart, col_ai = st.columns([1.6, 1])
 
-            df_stock_k = fetch_stock_data_robust(sid)
-
             # 取得最近約 3 個月價格資料
             df_stock_k = fetch_stock_data_robust(sid)
 
@@ -2381,16 +2612,17 @@ with tab2:
                 sid, start_date_chip, end_date_chip
             )
             df_taiex = fetch_taiex_benchmark()
+            current_disposal_ids = tuple(df_all_disp["stock_id"].astype(str).tolist())
+            peer_context = build_peer_capital_context(
+                stock_id=sid, market=mkt, df_stock=df_stock_k,
+                df_benchmark=df_taiex, current_disposal_ids=current_disposal_ids,
+            )
 
             event_model = analyze_disposal_event_model(
-                df_stock=df_stock_k,
-                chip_bundle=chip_bundle,
-                df_benchmark=df_taiex,
-                stock_id=sid,
-                market=mkt,
-                start_dt=row["start_dt"],
-                end_dt=row["end_dt"],
-                reason=row.get("reason", ""),
+                df_stock=df_stock_k, chip_bundle=chip_bundle,
+                df_benchmark=df_taiex, peer_context=peer_context,
+                stock_id=sid, market=mkt, start_dt=row["start_dt"],
+                end_dt=row["end_dt"], reason=row.get("reason", ""),
                 measure=row.get("measure", ""),
             )
 
@@ -2412,42 +2644,67 @@ with tab2:
 
             with col_ai:
                 st.metric(
-                    "處置事件模型分數",
-                    f"{event_model['score']} / 100",
+                    "處置事件綜合分數", f"{event_model['score']} / 100",
                     delta=event_model["direction"],
                 )
+                st.write(
+                    f"**事件層：** {event_model['event_score']} / 100 "
+                    f"｜ **資金環境層：** {event_model['capital_score']} / 100"
+                )
                 st.write(f"**事件風險：** {event_model['risk_level']}")
-
                 features = event_model["features"]
+
+                st.markdown("#### 🌐 1. 市場環境 Market Regime")
                 st.write(
-                    f"**5日報酬：** {fmt_pct(features['5日報酬'])} "
-                    f"｜ **20日報酬：** {fmt_pct(features['20日報酬'])}"
-                )
-                st.write(
-                    f"**5日相對大盤：** {fmt_pct(features['5日相對大盤'])}"
-                )
-                if features["量能比20MA"] is not None:
-                    volume_text = f"{features['量能比20MA']:.2f}x"
-                else:
-                    volume_text = "—"
-                st.write(
-                    f"**20MA乖離：** {fmt_pct(features['BIAS20'])} "
-                    f"｜ **20日量能比：** {volume_text}"
-                )
-                st.write(
-                    f"**法人5日淨買超：** {fmt_number(features['法人5日淨買超'])} "
-                    f"｜ **融資10日變化：** {fmt_pct(features['融資10日變化'])}"
+                    f"**市場環境：** {features['大盤環境']} ｜ **分數：** {features['大盤環境分數']}/100 "
+                    f"｜ **5日：** {fmt_pct(features['大盤5日報酬'])} ｜ **20日：** {fmt_pct(features['大盤20日報酬'])}"
                 )
 
+                st.markdown("#### 🏭 2. 同族群未處置 Peer Relative Strength")
+                st.write(
+                    f"**官方產業：** {features['官方產業']} ｜ **未處置家數：** {features['同族群未處置家數']} 檔 "
+                    f"｜ **有資料：** {features['同族群有資料家數']} 檔"
+                )
+                st.write(
+                    f"**5D RS：** {fmt_pct(features['5日族群相對強弱'])} ｜ "
+                    f"**10D RS：** {fmt_pct(features['10日族群相對強弱'])} ｜ "
+                    f"**20D RS：** {fmt_pct(features['20日族群相對強弱'])}"
+                )
+                st.write(
+                    f"**族群5D中位數：** {fmt_pct(features['族群5日中位數'])} ｜ "
+                    f"**5D上漲廣度：** {fmt_pct(features['族群5日廣度'])}"
+                )
+
+                st.markdown("#### 📊 3. 個股自身 52 週歷史動能")
+                st.write(
+                    f"**本週：** {fmt_pct(features['本週報酬'])} ｜ "
+                    f"**前週：** {fmt_pct(features['前週報酬'])} ｜ "
+                    f"**動能加速度：** {fmt_pct(features['動能加速度'])}"
+                )
+                st.write(f"**本週歷史百分位：** {fmt_pct(features['52週本週報酬百分位'])}")
+
+                st.markdown("#### 📌 4. 原事件 / 個股條件")
+                volume_text = f"{features['量能比20MA']:.2f}x" if features["量能比20MA"] is not None else "—"
+                st.write(
+                    f"**5日：** {fmt_pct(features['5日報酬'])} ｜ **20日：** {fmt_pct(features['20日報酬'])} ｜ "
+                    f"**BIAS20：** {fmt_pct(features['BIAS20'])}"
+                )
+                st.write(
+                    f"**20日量能比：** {volume_text} ｜ **法人5日淨買超：** {fmt_number(features['法人5日淨買超'])} ｜ "
+                    f"**融資10日變化：** {fmt_pct(features['融資10日變化'])}"
+                )
                 st.caption(
-                    "⚠️ 上述分數是事件特徵模型，不是歷史回測勝率；"
-                    "真正勝率需用歷史處置事件逐筆回測校準。"
+                    "⚠️ 以上為初版事件型 heuristic 分數，不是歷史回測勝率；正式權重應由歷史處置事件回測校準。"
                 )
 
                 if event_model["signals"]:
                     st.write("**模型關鍵訊號：**")
-                    for signal in event_model["signals"]:
+                    for signal in list(dict.fromkeys(event_model["signals"])):
                         st.write(signal)
+
+                if peer_context.get("peer_names"):
+                    with st.expander("🔎 查看同族群未處置樣本", expanded=False):
+                        st.write("、".join(peer_context["peer_names"]))
 
                 if chip_bundle.get("error"):
                     with st.expander("⚠️ 籌碼資料來源狀態", expanded=False):
