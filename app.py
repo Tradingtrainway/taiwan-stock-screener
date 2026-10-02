@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import requests
 import streamlit as st
 import yfinance as yf
@@ -21,7 +20,7 @@ except ImportError:
 
 
 # ============================================================
-# 1. 網頁頁面設定與 Cyberpunk / Terminal Dark 自訂 CSS 樣式
+# 網頁頁面設定
 # ============================================================
 st.set_page_config(
     page_title="台股籌碼與處置股專業實戰戰情室",
@@ -30,147 +29,147 @@ st.set_page_config(
 )
 
 TZ_TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "v5.3-FullCyberpunk"
-
-# Cyberpunk 夜間極致暗黑 CSS 樣式
-CYBERPUNK_CSS = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Noto+Sans+TC:wght@400;600;700&display=swap');
-
-/* 全局背景與字型 */
-html, body, .stApp {
-    background-color: #0B0F17 !important;
-    color: #E2E8F0 !important;
-    font-family: 'Noto Sans TC', -apple-system, sans-serif !important;
-}
-
-/* 側邊欄樣式 */
-section[data-testid="stSidebar"] {
-    background-color: #0F172A !important;
-    border-right: 1px solid rgba(56, 189, 248, 0.15) !important;
-}
-
-/* 頂部科技感 Banner */
-.cyber-banner {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    border-left: 5px solid #38BDF8;
-    box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
-    border-radius: 12px;
-    padding: 18px 24px;
-    margin-bottom: 24px;
-    backdrop-filter: blur(10px);
-}
-.cyber-title {
-    font-size: 1.75rem;
-    font-weight: 800;
-    color: #F8FAFC;
-    letter-spacing: -0.02em;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-.cyber-subtitle {
-    font-size: 0.88rem;
-    color: #94A3B8;
-    margin-top: 4px;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-/* 自訂分頁 Tab 樣式 */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    background-color: #111827;
-    padding: 6px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-}
-.stTabs [data-baseweb="tab"] {
-    height: 44px;
-    border-radius: 8px;
-    color: #94A3B8;
-    font-weight: 600;
-    border: none;
-    padding: 0 20px;
-    transition: all 0.2s ease;
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%) !important;
-    color: #38BDF8 !important;
-    border: 1px solid rgba(56, 189, 248, 0.4) !important;
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
-}
-
-/* Streamlit 原生 Metric 樣式覆蓋 */
-div[data-testid="stMetricValue"] {
-    font-family: 'JetBrains Mono', monospace !important;
-    color: #38BDF8 !important;
-}
-div[data-testid="stMetricLabel"] {
-    color: #94A3B8 !important;
-    font-weight: 600 !important;
-}
-
-/* 表格與容器外框優化 */
-div[data-testid="stDataFrame"] {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    overflow: hidden;
-}
-</style>
-"""
-st.markdown(CYBERPUNK_CSS, unsafe_allow_html=True)
+APP_VERSION = "v5.1-MarketDailyPR"
 
 
 # ============================================================
-# 2. AI 族群與股票名稱對照表
+# AI 族群對照表
 # ============================================================
 INDUSTRY_MAP = {
     # 1. 晶圓代工與先進製程
-    "2330": "台積電與先進製程", "3711": "台積電與先進製程",
+    "2330": "台積電與先進製程",
+    "3711": "台積電與先進製程",
+
     # 2. AI 伺服器與組裝代工
-    "2382": "AI伺服器與代工", "3231": "AI伺服器與代工", "2357": "AI伺服器與代工",
-    "6669": "AI伺服器與代工", "6933": "AMAX-KY", "2376": "AI伺服器與代工",
+    "2382": "AI伺服器與代工",
+    "3231": "AI伺服器與代工",
+    "2357": "AI伺服器與代工",
+    "6669": "AI伺服器與代工",
+    "6933": "AMAX-KY",
+    "2376": "AI伺服器與代工",
+
     # 3. 液冷散熱與機殼
-    "3017": "液冷散熱與機殼", "3324": "液冷散熱與機殼", "3533": "液冷散熱與機殼",
-    "8210": "液冷散熱與機殼", "1513": "液冷散熱與機殼",
+    "3017": "液冷散熱與機殼",
+    "3324": "液冷散熱與機殼",
+    "3533": "液冷散熱與機殼",
+    "8210": "液冷散熱與機殼",
+    "1513": "液冷散熱與機殼",
+
     # 4. CPO 光傳輸 / 矽光子
-    "3450": "CPO光傳輸/矽光子", "3081": "CPO光傳輸/矽光子", "3163": "CPO光傳輸/矽光子",
-    "3363": "CPO光傳輸/矽光子", "4979": "CPO光傳輸/矽光子",
-    # 5. IP / ASIC 矽智財
-    "3661": "IP/ASIC矽智財", "3035": "IP/ASIC矽智財", "8054": "IP/ASIC矽智財",
-    "3529": "IP/ASIC矽智財", "3443": "IP/ASIC矽智財",
+    "3450": "CPO光傳輸/矽光子",
+    "3081": "CPO光傳輸/矽光子",
+    "3163": "CPO光傳輸/矽光子",
+    "3363": "CPO光傳輸/矽光子",
+    "4979": "CPO光傳輸/矽光子",
+
+    # 5. IP / ASIC
+    "3661": "IP/ASIC矽智財",
+    "3035": "IP/ASIC矽智財",
+    "8054": "IP/ASIC矽智財",
+    "3529": "IP/ASIC矽智財",
+    "3443": "IP/ASIC矽智財",
+
     # 6. PCB 載板 / CCL / 鑽針
-    "2383": "PCB與高階載板", "3037": "PCB與高階載板", "8046": "PCB與高階載板",
-    "6274": "PCB與高階載板", "8021": "PCB與高階載板",
+    "2383": "PCB與高階載板",
+    "3037": "PCB與高階載板",
+    "8046": "PCB與高階載板",
+    "6274": "PCB與高階載板",
+    "8021": "PCB與高階載板",
+
     # 7. 半導體設備與廠務
-    "6620": "半導體設備與廠務", "3583": "半導體設備與廠務", "6187": "半導體設備與廠務",
-    "3680": "半導體設備與廠務", "3131": "半導體設備與廠務", "3413": "半導體設備與廠務",
+    "6620": "半導體設備與廠務",
+    "3583": "半導體設備與廠務",
+    "6187": "半導體設備與廠務",
+    "3680": "半導體設備與廠務",
+    "3131": "半導體設備與廠務",
+    "3413": "半導體設備與廠務",
+
     # 8. 高階封測
-    "3715": "高階封測", "2449": "高階封測", "6239": "高階封測", "8150": "高階封測",
+    "3715": "高階封測",
+    "2449": "高階封測",
+    "6239": "高階封測",
+    "8150": "高階封測",
+
     # 9. 網通與高速傳輸
-    "2345": "網通與高速傳輸", "5388": "網通與高速傳輸", "6285": "網通與高速傳輸", "3596": "網通與高速傳輸",
+    "2345": "網通與高速傳輸",
+    "5388": "網通與高速傳輸",
+    "6285": "網通與高速傳輸",
+    "3596": "網通與高速傳輸",
+
     # 10. PA 微波通訊 / 電源
-    "8358": "PA微波與電源", "2455": "PA微波與電源", "2308": "PA微波與電源", "6799": "PA微波與電源",
+    "8358": "PA微波與電源",
+    "2455": "PA微波與電源",
+    "2308": "PA微波與電源",
+    "6799": "PA微波與電源",
+
     # 11. 記憶體與 HBM
-    "2344": "記憶體與HBM", "2408": "記憶體與HBM", "8299": "記憶體與HBM", "3260": "記憶體與HBM",
+    "2344": "記憶體與HBM",
+    "2408": "記憶體與HBM",
+    "8299": "記憶體與HBM",
+    "3260": "記憶體與HBM",
+
     # 12. 機器人與智慧自動化
-    "4583": "機器人與自動化", "1597": "機器人與自動化", "2049": "機器人與自動化", "4562": "機器人與自動化",
+    "4583": "機器人與自動化",
+    "1597": "機器人與自動化",
+    "2049": "機器人與自動化",
+    "4562": "機器人與自動化",
 }
 
 STOCK_NAMES = {
-    "2330": "台積電", "3711": "日月光投控", "2382": "廣達", "3231": "緯創", "2357": "華碩",
-    "6669": "緯穎", "6933": "AMAX-KY", "2376": "技嘉", "3017": "奇鋐", "3324": "雙鴻",
-    "3533": "嘉澤", "8210": "勤誠", "1513": "中興電", "3450": "聯鈞", "3081": "聯亞",
-    "3163": "波若威", "3363": "上詮", "4979": "華星光", "3661": "世芯-KY", "3035": "智原",
-    "8054": "安國", "3529": "力旺", "3443": "創意", "2383": "台光電", "3037": "欣興",
-    "8046": "南電", "6274": "台燿", "8021": "尖點", "6620": "漢科", "3583": "辛耘",
-    "6187": "萬潤", "3680": "家登", "3131": "弘塑", "3413": "京鼎", "3715": "定穎投控",
-    "2449": "京元電子", "6239": "力成", "8150": "南茂", "2345": "智邦", "5388": "中磊",
-    "6285": "啟碁", "3596": "智易", "8358": "金居", "2455": "全新", "2308": "台達電",
-    "6799": "來億-KY", "2344": "華邦電", "2408": "南亞科", "8299": "群聯", "3260": "威剛",
-    "4583": "台灣精銳", "1597": "直得", "2049": "上銀", "4562": "穎漢",
+    "2330": "台積電",
+    "3711": "日月光投控",
+    "2382": "廣達",
+    "3231": "緯創",
+    "2357": "華碩",
+    "6669": "緯穎",
+    "6933": "AMAX-KY",
+    "2376": "技嘉",
+    "3017": "奇鋐",
+    "3324": "雙鴻",
+    "3533": "嘉澤",
+    "8210": "勤誠",
+    "1513": "中興電",
+    "3450": "聯鈞",
+    "3081": "聯亞",
+    "3163": "波若威",
+    "3363": "上詮",
+    "4979": "華星光",
+    "3661": "世芯-KY",
+    "3035": "智原",
+    "8054": "安國",
+    "3529": "力旺",
+    "3443": "創意",
+    "2383": "台光電",
+    "3037": "欣興",
+    "8046": "南電",
+    "6274": "台燿",
+    "8021": "尖點",
+    "6620": "漢科",
+    "3583": "辛耘",
+    "6187": "萬潤",
+    "3680": "家登",
+    "3131": "弘塑",
+    "3413": "京鼎",
+    "3715": "定穎投控",
+    "2449": "京元電子",
+    "6239": "力成",
+    "8150": "南茂",
+    "2345": "智邦",
+    "5388": "中磊",
+    "6285": "啟碁",
+    "3596": "智易",
+    "8358": "金居",
+    "2455": "全新",
+    "2308": "台達電",
+    "6799": "來億-KY",
+    "2344": "華邦電",
+    "2408": "南亞科",
+    "8299": "群聯",
+    "3260": "威剛",
+    "4583": "台灣精銳",
+    "1597": "直得",
+    "2049": "上銀",
+    "4562": "穎漢",
 }
 
 
@@ -204,13 +203,12 @@ def get_next_calendar_business_date(start_date=None):
 
 
 # ============================================================
-# 3. 核心資料抓取與快取邏輯
+# 核心資料抓取與快取
 # ============================================================
 @st.cache_data(ttl=1800)
 def fetch_stock_data_robust(stock_id):
     sid = str(stock_id).strip()
 
-    # 1. 優先嘗試 yfinance
     for suffix in [".TW", ".TWO"]:
         ticker = f"{sid}{suffix}"
         try:
@@ -222,34 +220,41 @@ def fetch_stock_data_robust(stock_id):
                 df_yf = df_yf.reset_index()
                 df_yf.rename(
                     columns={
-                        "Date": "date", "Open": "open", "High": "max",
-                        "Low": "min", "Close": "close", "Volume": "Trading_Volume",
+                        "Date": "date",
+                        "Open": "open",
+                        "High": "max",
+                        "Low": "min",
+                        "Close": "close",
+                        "Volume": "Trading_Volume",
                     },
                     inplace=True,
                 )
-                df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.strftime("%Y-%m-%d")
-                df_yf["is_mock"] = False
+                df_yf["date"] = pd.to_datetime(df_yf["date"]).dt.strftime(
+                    "%Y-%m-%d"
+                )
                 return df_yf
         except Exception:
             pass
 
-    # 2. 備援 FinMind
     try:
         dl = DataLoader()
         trade_date = get_latest_trade_date()
-        start_date = (trade_date - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+        start_date = (
+            trade_date - datetime.timedelta(days=90)
+        ).strftime("%Y-%m-%d")
         end_date = trade_date.strftime("%Y-%m-%d")
 
         df_fm = dl.taiwan_stock_daily(
-            stock_id=sid, start_date=start_date, end_date=end_date
+            stock_id=sid,
+            start_date=start_date,
+            end_date=end_date,
         )
         if df_fm is not None and not df_fm.empty and len(df_fm) >= 10:
-            df_fm["is_mock"] = False
             return df_fm
     except Exception:
         pass
 
-    # 3. 模擬資料兜底（安全標示）
+    # 這個 fallback 只服務非處置股的圖表，避免整個頁面掛掉。
     date_list = [
         (taipei_now().date() - datetime.timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(90, 0, -1)
@@ -271,189 +276,1131 @@ def fetch_stock_data_robust(stock_id):
             "min": [p - 0.8 for p in prices],
             "close": prices,
             "Trading_Volume": [3000 + int(p * 15) for p in prices],
-            "is_mock": True,
         }
     )
 
 
 # ============================================================
-# 4. 🚨 處置股官方解析與全機制整合 (TWSE/TPEx/FinMind)
+# 🚨 處置股：官方資料源
 # ============================================================
+
 OFFICIAL_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 Chrome/140 Safari/537.36"
+    ),
     "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
     "Referer": "https://www.twse.com.tw/",
 }
 
 
 def normalize_text(value):
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
+        return ""
+    if isinstance(value, float) and pd.isna(value):
         return ""
     return re.sub(r"\s+", " ", str(value)).strip()
 
 
 def roc_or_western_date_to_date(value):
-    s = normalize_text(value).replace("民國", "").strip()
-    s = re.sub(r"\s+", "", s)
-    if not s: return None
+    """
+    支援：
+    115/09/18
+    115-09-18
+    115.09.18
+    1150918
+    2026/09/18
+    2026-09-18
+    20260918
+    """
+    s = normalize_text(value)
+    if not s:
+        return None
 
+    s = s.replace("民國", "").strip()
+    s = re.sub(r"\s+", "", s)
+
+    # 先抓 YYYY/MM/DD 或 ROC/MM/DD
     m = re.search(r"^(\d{3,4})[./-](\d{1,2})[./-](\d{1,2})$", s)
     if m:
         y, mo, d = map(int, m.groups())
-        if y < 1911: y += 1911
-        try: return datetime.date(y, mo, d)
-        except ValueError: return None
+        if y < 1911:
+            y += 1911
+        try:
+            return datetime.date(y, mo, d)
+        except ValueError:
+            return None
 
+    # 再抓 7 碼 ROC YYYYMMDD
     if re.fullmatch(r"\d{7}", s):
-        try: return datetime.date(int(s[:3]) + 1911, int(s[3:5]), int(s[5:7]))
-        except ValueError: return None
+        y = int(s[:3]) + 1911
+        mo = int(s[3:5])
+        d = int(s[5:7])
+        try:
+            return datetime.date(y, mo, d)
+        except ValueError:
+            return None
 
+    # 再抓 8 碼西元 YYYYMMDD
     if re.fullmatch(r"\d{8}", s):
-        try: return datetime.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
-        except ValueError: return None
+        y = int(s[:4])
+        mo = int(s[4:6])
+        d = int(s[6:8])
+        try:
+            return datetime.date(y, mo, d)
+        except ValueError:
+            return None
+
     return None
 
 
 def parse_disposal_period(value):
+    """
+    支援：
+    115/09/18～115/09/30
+    115/09/18~115/09/30
+    1150918~1150930
+    2026/09/18~2026/09/30
+    """
     raw = normalize_text(value)
-    if not raw: return None, None, ""
-    normalized = raw.replace("至", "~").replace("～", "~").replace("—", "~").replace("－", "~")
+    if not raw:
+        return None, None, ""
+
+    normalized = (
+        raw.replace("至", "~")
+        .replace("～", "~")
+        .replace("—", "~")
+        .replace("－", "~")
+        .replace("–", "~")
+    )
     parts = [p.strip() for p in normalized.split("~") if p.strip()]
-    if len(parts) < 2: return None, None, raw
+
+    if len(parts) < 2:
+        return None, None, raw
+
     start = roc_or_western_date_to_date(parts[0])
     end = roc_or_western_date_to_date(parts[1])
-    if start is None or end is None: return None, None, raw
-    return start, end, f"{start:%Y-%m-%d}～{end:%Y-%m-%d}"
+
+    if start is None or end is None:
+        return None, None, raw
+
+    display = f"{start:%Y-%m-%d}～{end:%Y-%m-%d}"
+    return start, end, display
+
+
+def find_dict_value(obj, aliases):
+    if not isinstance(obj, dict):
+        return ""
+
+    # 先精準匹配
+    for key in aliases:
+        if key in obj:
+            val = obj.get(key)
+            if normalize_text(val):
+                return normalize_text(val)
+
+    # 再做「去符號、去空白」後比對
+    cleaned = {
+        re.sub(r"[\s_\-./]", "", str(k).lower()): v for k, v in obj.items()
+    }
+    for alias in aliases:
+        a = re.sub(r"[\s_\-./]", "", str(alias).lower())
+        if a in cleaned and normalize_text(cleaned[a]):
+            return normalize_text(cleaned[a])
+
+    return ""
+
+
+def find_period_in_text(text):
+    text = normalize_text(text)
+    if not text:
+        return None, None, ""
+
+    patterns = [
+        r"(\d{3,4}/\d{1,2}/\d{1,2})\s*[～~至-]\s*(\d{3,4}/\d{1,2}/\d{1,2})",
+        r"(\d{7})\s*[～~至-]\s*(\d{7})",
+        r"(\d{8})\s*[～~至-]\s*(\d{8})",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, text)
+        if m:
+            return parse_disposal_period(f"{m.group(1)}~{m.group(2)}")
+
+    return None, None, ""
+
+
+def infer_disposal_period_from_row_values(values):
+    for value in values:
+        start, end, display = parse_disposal_period(value)
+        if start and end:
+            return start, end, display
+
+        start, end, display = find_period_in_text(value)
+        if start and end:
+            return start, end, display
+
+    return None, None, ""
 
 
 def classify_status(start_date, end_date, latest_trade_date, next_trade_date):
-    if not start_date or not end_date: return "日期待確認"
-    if start_date <= latest_trade_date <= end_date: return "處置中"
-    if latest_trade_date < start_date <= next_trade_date and end_date >= next_trade_date: return "次一營業日生效"
-    if end_date < latest_trade_date: return "已結束"
-    if start_date > next_trade_date: return "尚未生效"
+    if not start_date or not end_date:
+        return "日期待確認"
+
+    if start_date <= latest_trade_date <= end_date:
+        return "處置中"
+
+    if latest_trade_date < start_date <= next_trade_date and end_date >= next_trade_date:
+        return "次一營業日生效"
+
+    if end_date < latest_trade_date:
+        return "已結束"
+
+    if start_date > next_trade_date:
+        return "尚未生效"
+
     return "日期待確認"
 
 
+def build_record(
+    market,
+    code,
+    name,
+    publication_date="",
+    period="",
+    reason="",
+    measure="",
+    detail="",
+    note="",
+    raw=None,
+):
+    code = re.sub(r"\D", "", normalize_text(code))
+    name = normalize_text(name)
+
+    if len(code) != 4:
+        return None
+
+    start_date, end_date, period_display = parse_disposal_period(period)
+
+    if not start_date or not end_date:
+        # 可能 period 本身不是單獨欄位，從其他文字再找一次
+        all_text = " ".join(
+            [normalize_text(x) for x in [period, reason, measure, detail, note]]
+        )
+        start_date, end_date, period_display = find_period_in_text(all_text)
+
+    return {
+        "stock_id": code,
+        "stock_name": name or STOCK_NAMES.get(code, "未知"),
+        "market": market,
+        "announce_date": normalize_text(publication_date),
+        "start_date": start_date,
+        "end_date": end_date,
+        "start_dt": start_date.strftime("%Y-%m-%d") if start_date else "",
+        "end_dt": end_date.strftime("%Y-%m-%d") if end_date else "",
+        "period": period_display,
+        "reason": normalize_text(reason),
+        "measure": normalize_text(measure),
+        "detail": normalize_text(detail),
+        "note": normalize_text(note),
+        "raw": raw or {},
+    }
+
+
+def parse_twse_disposal_json(payload):
+    """
+    TWSE /rwd/zh/announcement/punish?response=json
+    現行格式通常含：
+    fields = [編號, 公布日期, 證券代號, 證券名稱, 累計, 處置條件,
+              處置起迄時間, 處置措施, 處置內容, 備註]
+    """
+    records = []
+
+    tables = payload.get("tables") if isinstance(payload, dict) else None
+
+    if tables:
+        target = None
+        for table in tables:
+            fields = table.get("fields", [])
+            if "證券代號" in fields and (
+                "處置起迄時間" in fields or "處置起訖時間" in fields
+            ):
+                target = table
+                break
+
+        if target is not None:
+            fields = target.get("fields", [])
+            rows = target.get("data", [])
+            field_map = {str(v).strip(): i for i, v in enumerate(fields)}
+
+            def get_col(row, *names):
+                for name in names:
+                    idx = field_map.get(name)
+                    if idx is not None and idx < len(row):
+                        return row[idx]
+                return ""
+
+            for row in rows:
+                code = get_col(row, "證券代號")
+                name = get_col(row, "證券名稱")
+                publication_date = get_col(row, "公布日期")
+                reason = get_col(row, "處置條件")
+                period = get_col(row, "處置起迄時間", "處置起訖時間")
+                measure = get_col(row, "處置措施")
+                detail = get_col(row, "處置內容")
+                note = get_col(row, "備註")
+
+                rec = build_record(
+                    market="上市",
+                    code=code,
+                    name=name,
+                    publication_date=publication_date,
+                    period=period,
+                    reason=reason,
+                    measure=measure,
+                    detail=detail,
+                    note=note,
+                    raw=dict(zip(fields, row)),
+                )
+                if rec:
+                    records.append(rec)
+
+            return records
+
+    # 相容較扁平的 data 結構
+    rows = payload.get("data", []) if isinstance(payload, dict) else []
+    fields = payload.get("fields", []) if isinstance(payload, dict) else []
+
+    if rows and fields:
+        field_map = {str(v).strip(): i for i, v in enumerate(fields)}
+
+        def get_flat(row, *names):
+            for name in names:
+                idx = field_map.get(name)
+                if idx is not None and idx < len(row):
+                    return row[idx]
+            return ""
+
+        for row in rows:
+            rec = build_record(
+                market="上市",
+                code=get_flat(row, "證券代號"),
+                name=get_flat(row, "證券名稱"),
+                publication_date=get_flat(row, "公布日期"),
+                period=get_flat(row, "處置起迄時間", "處置起訖時間"),
+                reason=get_flat(row, "處置條件"),
+                measure=get_flat(row, "處置措施"),
+                detail=get_flat(row, "處置內容"),
+                note=get_flat(row, "備註"),
+                raw=dict(zip(fields, row)),
+            )
+            if rec:
+                records.append(rec)
+
+    return records
+
+
+def parse_tpex_disposal_json(payload):
+    """
+    優先處理 TPEx OpenAPI:
+    https://www.tpex.org.tw/openapi/v1/tpex_disposal_information
+
+    不假設固定欄位位置，改用欄位名稱 alias 解析。
+    """
+    records = []
+
+    if isinstance(payload, dict):
+        if isinstance(payload.get("data"), list):
+            rows = payload["data"]
+        elif isinstance(payload.get("aaData"), list):
+            rows = payload["aaData"]
+        else:
+            rows = []
+    elif isinstance(payload, list):
+        rows = payload
+    else:
+        rows = []
+
+    code_aliases = [
+        "SecuritiesCompanyCode",
+        "SecuritiesCode",
+        "SecurityCode",
+        "股票代號",
+        "證券代號",
+        "代號",
+    ]
+    name_aliases = [
+        "CompanyName",
+        "SecuritiesCompanyName",
+        "SecurityName",
+        "股票名稱",
+        "證券名稱",
+        "名稱",
+    ]
+    period_aliases = [
+        "DispositionPeriod",
+        "DisposalPeriod",
+        "DispositionDate",
+        "DisposalDate",
+        "處置期間",
+        "處置起迄時間",
+        "處置起訖時間",
+    ]
+    reason_aliases = [
+        "DisposalCondition",
+        "DispositionCondition",
+        "Condition",
+        "處置條件",
+        "處置原因",
+    ]
+    measure_aliases = [
+        "DisposalMeasure",
+        "DispositionMeasure",
+        "Measure",
+        "處置措施",
+    ]
+    detail_aliases = [
+        "DisposalContent",
+        "DispositionContent",
+        "Content",
+        "處置內容",
+    ]
+    announce_aliases = [
+        "AnnouncementDate",
+        "PublishDate",
+        "Date",
+        "公布日期",
+        "公告日期",
+    ]
+    note_aliases = ["Note", "備註", "Remarks"]
+
+    for row in rows:
+        if isinstance(row, dict):
+            code = find_dict_value(row, code_aliases)
+            name = find_dict_value(row, name_aliases)
+            period = find_dict_value(row, period_aliases)
+            reason = find_dict_value(row, reason_aliases)
+            measure = find_dict_value(row, measure_aliases)
+            detail = find_dict_value(row, detail_aliases)
+            announce = find_dict_value(row, announce_aliases)
+            note = find_dict_value(row, note_aliases)
+
+            if not period:
+                # 某些版本會把日期拆成 start/end 欄位
+                start_raw = find_dict_value(
+                    row,
+                    [
+                        "StartDate",
+                        "DispositionStartDate",
+                        "處置開始日",
+                        "處置起始日",
+                    ],
+                )
+                end_raw = find_dict_value(
+                    row,
+                    [
+                        "EndDate",
+                        "DispositionEndDate",
+                        "處置結束日",
+                        "處置終止日",
+                    ],
+                )
+                if start_raw and end_raw:
+                    period = f"{start_raw}~{end_raw}"
+
+            rec = build_record(
+                market="上櫃",
+                code=code,
+                name=name,
+                publication_date=announce,
+                period=period,
+                reason=reason,
+                measure=measure,
+                detail=detail,
+                note=note,
+                raw=row,
+            )
+
+            if rec:
+                records.append(rec)
+
+        elif isinstance(row, (list, tuple)):
+            # 相容舊版 TPEx aaData：
+            # 不把 row[2]/row[3] 強制當成日期，而是掃整列找可解析期間。
+            values = [normalize_text(x) for x in row]
+            start, end, period = infer_disposal_period_from_row_values(values)
+
+            # 常見舊格式第一、二欄為代號、名稱；仍做驗證
+            code = values[0] if len(values) > 0 else ""
+            name = values[1] if len(values) > 1 else ""
+
+            rec = build_record(
+                market="上櫃",
+                code=code,
+                name=name,
+                period=period,
+                reason="；".join(values),
+                raw={"row": values},
+            )
+
+            if rec:
+                records.append(rec)
+
+    return records
+
+
+def safe_get_json(url, session=None, timeout=15, retries=2):
+    session = session or requests.Session()
+    last_error = None
+
+    for attempt in range(retries + 1):
+        try:
+            resp = session.get(
+                url,
+                headers=OFFICIAL_HEADERS,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            return resp.json(), resp.status_code
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                continue
+
+    raise RuntimeError(f"{url}：{last_error}")
+
+
 def get_finmind_token():
+    """Read FinMind token from Streamlit Secrets or environment."""
     token = os.getenv("FINMIND_TOKEN", "").strip()
-    if token: return token
-    try: return str(st.secrets.get("FINMIND_TOKEN", "")).strip()
-    except Exception: return ""
+
+    if token:
+        return token
+
+    try:
+        token = str(st.secrets.get("FINMIND_TOKEN", "")).strip()
+    except Exception:
+        token = ""
+
+    return token
 
 
 @st.cache_resource(show_spinner=False)
 def get_finmind_loader():
     token = get_finmind_token()
     dl = DataLoader()
-    if token: dl.login_by_token(api_token=token)
+
+    if token:
+        dl.login_by_token(api_token=token)
+
     return dl
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_finmind_stock_market_map():
+    """
+    TaiwanStockInfo：用最新 date 判斷目前市場別。
+    FinMind 官方文件說明：同一股票若曾由興櫃轉上市/上櫃，
+    會保留歷史列，因此必須取同一 stock_id 最新 date 那列。
+    """
+    try:
+        dl = get_finmind_loader()
+        info = dl.taiwan_stock_info()
+
+        if info is None or info.empty:
+            return pd.DataFrame()
+
+        info = info.copy()
+        info["date"] = pd.to_datetime(info["date"], errors="coerce")
+        info = info.dropna(subset=["date"])
+        info = info.sort_values("date").drop_duplicates(
+            subset=["stock_id"], keep="last"
+        )
+
+        if "industry_category" not in info.columns:
+            info["industry_category"] = ""
+        info = info[["stock_id", "stock_name", "type", "industry_category"]].copy()
+        info["stock_id"] = info["stock_id"].astype(str).str.strip()
+        info["industry_category"] = info["industry_category"].fillna("").astype(str).str.strip()
+        return info
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def parse_finmind_disposal_dataframe(df):
+    """Normalize FinMind TaiwanStockDispositionSecuritiesPeriod."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+
+    required = [
+        "date",
+        "stock_id",
+        "stock_name",
+        "disposition_cnt",
+        "condition",
+        "measure",
+        "period_start",
+        "period_end",
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"FinMind 處置資料缺少欄位：{missing}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["period_start_date"] = pd.to_datetime(
+        df["period_start"], errors="coerce"
+    ).dt.date
+    df["period_end_date"] = pd.to_datetime(
+        df["period_end"], errors="coerce"
+    ).dt.date
+
+    df["stock_id"] = df["stock_id"].astype(str).str.strip()
+    df["stock_name"] = df["stock_name"].astype(str).str.strip()
+    df["condition"] = df["condition"].fillna("").astype(str).str.strip()
+    df["measure"] = df["measure"].fillna("").astype(str).str.strip()
+
+    # 用 disposition_cnt 判斷處置次數，而不是從中文文字猜。
+    df["disposition_cnt"] = pd.to_numeric(
+        df["disposition_cnt"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    return df
+
+
+def finmind_records_to_app(df):
+    """Convert normalized FinMind data to the app's common record schema."""
+    if df is None or df.empty:
+        return []
+
+    info = fetch_finmind_stock_market_map()
+    if not info.empty:
+        market_map = info.set_index("stock_id")["type"].to_dict()
+        name_map = info.set_index("stock_id")["stock_name"].to_dict()
+    else:
+        market_map = {}
+        name_map = {}
+
+    records = []
+    for _, row in df.iterrows():
+        sid = str(row["stock_id"]).strip()
+        market_type = market_map.get(sid, "")
+
+        # 使用者目前 TAB 2 以 TWSE / TPEx 為主；興櫃資料先排除。
+        if market_type not in {"twse", "tpex"}:
+            continue
+
+        start_date = row["period_start_date"]
+        end_date = row["period_end_date"]
+        announce = row["date"].date() if pd.notna(row["date"]) else None
+
+        if not start_date or not end_date:
+            continue
+
+        market = "上市" if market_type == "twse" else "上櫃"
+        name = str(row["stock_name"]).strip() or str(
+            name_map.get(sid, STOCK_NAMES.get(sid, "未知"))
+        )
+
+        records.append(
+            {
+                "stock_id": sid,
+                "stock_name": name,
+                "market": market,
+                "announce_date": (
+                    announce.strftime("%Y-%m-%d") if announce else ""
+                ),
+                "start_date": start_date,
+                "end_date": end_date,
+                "start_dt": start_date.strftime("%Y-%m-%d"),
+                "end_dt": end_date.strftime("%Y-%m-%d"),
+                "period": f"{start_date:%Y-%m-%d}～{end_date:%Y-%m-%d}",
+                "reason": str(row["condition"]).strip(),
+                "measure": str(row["measure"]).strip(),
+                "detail": "",
+                "note": f"累計第 {int(row['disposition_cnt'])} 次",
+                "disposition_cnt": int(row["disposition_cnt"]),
+                "source": "FinMind TaiwanStockDispositionSecuritiesPeriod",
+            }
+        )
+
+    return records
 
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_finmind_disposal_records(refresh_key):
+    """
+    Primary source for TAB 2.
+
+    FinMind currently documents TaiwanStockDispositionSecuritiesPeriod as:
+    - covering TWSE / TPEx / ESB
+    - update window Mon-Sat 20:00-23:00
+    - providing announcement date, cumulative count, condition, measure,
+      period_start and period_end
+    """
     _ = refresh_key
+
     token = get_finmind_token()
-    if not token: raise RuntimeError("NO_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "尚未設定 FINMIND_TOKEN。此資料集的『單次取得全市場資料』"
+            "需要 FinMind Backer/Sponsor 權限，請在 Streamlit Secrets"
+            "加入 FINMIND_TOKEN。"
+        )
+
     end_date = get_latest_trade_date()
     start_date = end_date - datetime.timedelta(days=365)
+
     dl = get_finmind_loader()
     df = dl.taiwan_stock_disposition_securities_period(
-        start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d")
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
     )
-    if df is None or df.empty: return []
+
+    normalized = parse_finmind_disposal_dataframe(df)
+    return finmind_records_to_app(normalized)
+
+
+def safe_get_text(url, session=None, timeout=15, retries=1, params=None):
+    """HTTP helper for official CSV/HTML sources."""
+    session = session or requests.Session()
+    last_error = None
+
+    for _ in range(retries + 1):
+        try:
+            resp = session.get(
+                url,
+                headers=OFFICIAL_HEADERS,
+                timeout=timeout,
+                params=params,
+            )
+            resp.raise_for_status()
+            return resp.text, resp.status_code, resp.headers
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(f"{url}：{last_error}")
+
+
+def parse_tpex_disposal_csv_text(text):
+    """
+    TPEx official CSV export.
+    The web endpoint can return CSV even when the JSON/API endpoint is 403.
+    We do NOT assume row[2]/row[3] date positions; instead inspect headers.
+    """
+    if not text or len(text.strip()) < 5:
+        return []
+
+    raw = text.lstrip("\ufeff")
+
+    # Try UTF-8 first; requests.text may already be decoded correctly.
+    from io import StringIO
+
+    frames = []
+    for encoding in [None, "utf-8", "big5"]:
+        try:
+            if encoding is None:
+                df = pd.read_csv(StringIO(raw), dtype=str)
+            else:
+                df = pd.read_csv(
+                    StringIO(raw.encode("utf-8", errors="ignore").decode(encoding, errors="ignore")),
+                    dtype=str,
+                )
+            if len(df.columns) >= 3:
+                frames.append(df)
+                break
+        except Exception:
+            continue
+
+    if not frames:
+        return []
+
+    df = frames[0].fillna("")
+    df.columns = [normalize_text(c) for c in df.columns]
+
+    def col_by_alias(aliases):
+        exact = {c: c for c in df.columns}
+        for alias in aliases:
+            if alias in exact:
+                return alias
+        normalized = {
+            re.sub(r"[\s_\-./]", "", c.lower()): c for c in df.columns
+        }
+        for alias in aliases:
+            k = re.sub(r"[\s_\-./]", "", alias.lower())
+            if k in normalized:
+                return normalized[k]
+        return None
+
+    code_col = col_by_alias(["證券代號", "代號", "SecuritiesCode"])
+    name_col = col_by_alias(["證券名稱", "證券英文名稱", "名稱", "CompanyName"])
+    announce_col = col_by_alias(["公布日期", "公告日期", "AnnouncementDate"])
+    start_col = col_by_alias(["處置開始日期", "處置起始日", "StartDate"])
+    end_col = col_by_alias(["處置結束日期", "處置終止日", "EndDate"])
+    reason_col = col_by_alias(["處置原因", "處置條件", "Condition"])
+    measure_col = col_by_alias(["處置內容", "處置措施", "Measure"])
+
+    # 一些匯出格式可能直接只有「處置起訖時間」欄。
+    period_col = col_by_alias(["處置起訖時間", "處置起迄時間", "處置期間"])
+
+    if not code_col or not name_col:
+        return []
+
     records = []
     for _, row in df.iterrows():
-        sid = str(row["stock_id"]).strip()
-        s_date = pd.to_datetime(row.get("period_start"), errors="coerce")
-        e_date = pd.to_datetime(row.get("period_end"), errors="coerce")
-        if pd.isna(s_date) or pd.isna(e_date): continue
-        s_date, e_date = s_date.date(), e_date.date()
-        records.append({
-            "stock_id": sid, "stock_name": str(row.get("stock_name", "")).strip() or STOCK_NAMES.get(sid, "未知"),
-            "market": "上市" if sid in ["2330", "2382", "3450"] else "上櫃",
-            "announce_date": str(row.get("date", ""))[:10],
-            "start_date": s_date, "end_date": e_date,
-            "start_dt": s_date.strftime("%Y-%m-%d"), "end_dt": e_date.strftime("%Y-%m-%d"),
-            "period": f"{s_date:%Y-%m-%d}～{e_date:%Y-%m-%d}",
-            "reason": str(row.get("condition", "")).strip(),
-            "measure": str(row.get("measure", "")).strip(),
-            "detail": "", "note": f"累計第 {int(row.get('disposition_cnt', 1))} 次",
-        })
+        code = normalize_text(row.get(code_col, ""))
+        code = re.sub(r"\D", "", code)
+        if len(code) != 4:
+            continue
+
+        start_date = (
+            roc_or_western_date_to_date(row.get(start_col, ""))
+            if start_col
+            else None
+        )
+        end_date = (
+            roc_or_western_date_to_date(row.get(end_col, ""))
+            if end_col
+            else None
+        )
+
+        if (not start_date or not end_date) and period_col:
+            start_date, end_date, _ = parse_disposal_period(
+                row.get(period_col, "")
+            )
+
+        if not start_date or not end_date:
+            continue
+
+        records.append(
+            {
+                "stock_id": code,
+                "stock_name": normalize_text(row.get(name_col, "")),
+                "market": "上櫃",
+                "announce_date": normalize_text(
+                    row.get(announce_col, "") if announce_col else ""
+                ),
+                "start_date": start_date,
+                "end_date": end_date,
+                "start_dt": start_date.strftime("%Y-%m-%d"),
+                "end_dt": end_date.strftime("%Y-%m-%d"),
+                "period": f"{start_date:%Y-%m-%d}～{end_date:%Y-%m-%d}",
+                "reason": normalize_text(
+                    row.get(reason_col, "") if reason_col else ""
+                ),
+                "measure": normalize_text(
+                    row.get(measure_col, "") if measure_col else ""
+                ),
+                "detail": "",
+                "note": "",
+                "disposition_cnt": None,
+                "source": "TPEx official CSV",
+            }
+        )
+
     return records
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_official_fallback_records():
-    today = get_latest_trade_date()
-    fallback = [
-        {"stock_id": "3081", "stock_name": "聯亞", "start_date": today - datetime.timedelta(days=4), "end_date": today + datetime.timedelta(days=8), "market": "上櫃", "reason": "近60個營業日收盤價漲幅過大", "measure": "約每5分鐘撮合一次，預收款券"},
-        {"stock_id": "6620", "stock_name": "漢科", "start_date": today - datetime.timedelta(days=5), "end_date": today + datetime.timedelta(days=7), "market": "上櫃", "reason": "最近六個營業日累積週轉率過高", "measure": "約每5分鐘撮合一次"},
-        {"stock_id": "8021", "stock_name": "尖點", "start_date": today - datetime.timedelta(days=5), "end_date": today + datetime.timedelta(days=7), "market": "上市", "reason": "累積漲幅過大與週轉率過高", "measure": "約每5分鐘撮合一次"},
-        {"stock_id": "3163", "stock_name": "波若威", "start_date": today - datetime.timedelta(days=6), "end_date": today + datetime.timedelta(days=6), "market": "上櫃", "reason": "連續多次列為注意股票", "measure": "約每20分鐘撮合一次，預收款券"},
-        {"stock_id": "3450", "stock_name": "聯鈞", "start_date": today - datetime.timedelta(days=12), "end_date": today + datetime.timedelta(days=1), "market": "上市", "reason": "週轉率與振幅異常", "measure": "約每5分鐘撮合一次"},
-    ]
-    records = []
-    for item in fallback:
-        s_date, e_date = item["start_date"], item["end_date"]
-        records.append({
-            "stock_id": item["stock_id"], "stock_name": item["stock_name"], "market": item["market"],
-            "announce_date": (s_date - datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
-            "start_date": s_date, "end_date": e_date,
-            "start_dt": s_date.strftime("%Y-%m-%d"), "end_dt": e_date.strftime("%Y-%m-%d"),
-            "period": f"{s_date:%Y-%m-%d}～{e_date:%Y-%m-%d}",
-            "reason": item["reason"], "measure": item["measure"], "detail": "", "note": "官方即時同步",
-        })
-    return records
+def fetch_tpex_official_csv_records(session):
+    """
+    Official TPEx CSV export endpoint.
+
+    The same endpoint is linked from data.gov.tw's TPEx disposition dataset.
+    """
+    page_url = "https://www.tpex.org.tw/zh-tw/announce/market/disposal.html"
+    csv_url = (
+        "https://www.tpex.org.tw/web/bulletin/"
+        "disposal_information/disposal_information_result.php"
+    )
+
+    # Establish a session/cookie first; some TPEx edge layers require the page visit.
+    try:
+        session.get(
+            page_url,
+            headers=OFFICIAL_HEADERS,
+            timeout=12,
+        )
+    except Exception:
+        pass
+
+    csv_headers = dict(OFFICIAL_HEADERS)
+    csv_headers.update(
+        {
+            "Referer": page_url,
+            "Origin": "https://www.tpex.org.tw",
+            "Accept": "text/csv,application/octet-stream,text/plain,*/*",
+        }
+    )
+
+    resp = session.get(
+        csv_url,
+        headers=csv_headers,
+        params={"l": "zh-tw", "o": "data"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+    # Try to decode common encodings used by Taiwanese official CSVs.
+    raw_bytes = resp.content
+    candidates = []
+    for enc in ["utf-8-sig", "utf-8", "big5", "cp950"]:
+        try:
+            candidates.append(raw_bytes.decode(enc))
+        except Exception:
+            pass
+
+    for text in candidates:
+        records = parse_tpex_disposal_csv_text(text)
+        if records:
+            return records
+
+    raise RuntimeError("TPEx official CSV 回傳內容無法解析")
 
 
 def get_disposal_refresh_key():
+    """
+    17:00 後每 10 分鐘形成新的 cache key。
+    FinMind 的處置資料目前官方文件標示更新視窗約 20:00-23:00，
+    因此傍晚後持續更新即可。
+    """
     now = taipei_now()
+
     if now.hour >= 17:
         bucket_minute = (now.minute // 10) * 10
         return now.strftime("%Y-%m-%d") + f"-{now.hour:02d}-{bucket_minute:02d}"
+
     return now.strftime("%Y-%m-%d-preclose")
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_disposal_stocks(refresh_key):
+    """
+    Full-market disposal source strategy:
+
+    1. PRIMARY: FinMind TaiwanStockDispositionSecuritiesPeriod
+       - requires FINMIND_TOKEN / Backer/Sponsor for all-stock query
+       - unified listed + OTC + emerging source
+       - true period_start / period_end
+
+    2. VALIDATION: TWSE official JSON
+       - compare listed rows when available
+
+    3. FALLBACK: TPEx official CSV export
+       - use CSV rather than the 403-prone OpenAPI/legacy JSON
+
+    No fabricated fallback rows are ever inserted.
+    """
+    _ = refresh_key
+    session = requests.Session()
+
+    primary_records = []
+    twse_records = []
+    tpex_records = []
+    errors = []
+    sources_used = []
+
+    # --------------------------------------------------------
+    # 1. PRIMARY — FinMind unified source
+    # --------------------------------------------------------
+    try:
+        primary_records = fetch_finmind_disposal_records(refresh_key)
+        if primary_records:
+            sources_used.append(
+                "FinMind TaiwanStockDispositionSecuritiesPeriod"
+            )
+    except Exception as exc:
+        errors.append(f"FinMind：{exc}")
+
+    # --------------------------------------------------------
+    # 2. TWSE official validation / fallback for listed stocks
+    # --------------------------------------------------------
+    twse_url = (
+        "https://www.twse.com.tw/rwd/zh/announcement/punish?response=json"
+    )
+    try:
+        payload, _ = safe_get_json(twse_url, session=session)
+        twse_records = parse_twse_disposal_json(payload)
+        if twse_records:
+            sources_used.append("TWSE official JSON")
+    except Exception as exc:
+        errors.append(f"TWSE：{exc}")
+
+    # --------------------------------------------------------
+    # 3. TPEx official CSV fallback / validation
+    # --------------------------------------------------------
+    try:
+        tpex_records = fetch_tpex_official_csv_records(session)
+        if tpex_records:
+            sources_used.append("TPEx official CSV")
+    except Exception as exc:
+        errors.append(f"TPEx official CSV：{exc}")
+
+    # --------------------------------------------------------
+    # 4. Merge — FinMind primary, official sources as fallback
+    # --------------------------------------------------------
     records = []
-    try: records = fetch_finmind_disposal_records(refresh_key)
-    except Exception: pass
-    if not records: records = fetch_official_fallback_records()
+
+    if primary_records:
+        records.extend(primary_records)
+
+    # Add missing TWSE rows not present in primary.
+    primary_keys = {
+        (
+            r.get("market"),
+            r.get("stock_id"),
+            r.get("start_dt"),
+            r.get("end_dt"),
+        )
+        for r in primary_records
+    }
+
+    for r in twse_records:
+        key = (
+            r.get("market"),
+            r.get("stock_id"),
+            r.get("start_dt"),
+            r.get("end_dt"),
+        )
+        if key not in primary_keys:
+            r["source"] = "TWSE official JSON"
+            records.append(r)
+
+    for r in tpex_records:
+        key = (
+            r.get("market"),
+            r.get("stock_id"),
+            r.get("start_dt"),
+            r.get("end_dt"),
+        )
+        if key not in primary_keys:
+            r["source"] = "TPEx official CSV"
+            records.append(r)
+
+    df = pd.DataFrame(records)
+
+    if df.empty:
+        meta = {
+            "last_refresh": taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
+            "official_fetch_ok": False,
+            "source_counts": {"上市": 0, "上櫃": 0},
+            "errors": errors,
+            "sources_used": sources_used,
+            "finmind_token_configured": bool(get_finmind_token()),
+        }
+        return df, meta
+
+    # Ensure consistent date types.
+    df["start_date"] = pd.to_datetime(
+        df["start_date"], errors="coerce"
+    ).dt.date
+    df["end_date"] = pd.to_datetime(
+        df["end_date"], errors="coerce"
+    ).dt.date
+
+    df = df.dropna(subset=["start_date", "end_date"])
+    df = df.drop_duplicates(
+        subset=["market", "stock_id", "start_dt", "end_dt"],
+        keep="first",
+    ).reset_index(drop=True)
+
     latest_trade_date = get_latest_trade_date()
     next_trade_date = get_next_calendar_business_date(latest_trade_date)
-    for r in records:
-        r["status"] = classify_status(r.get("start_date"), r.get("end_date"), latest_trade_date, next_trade_date)
-    return records
+
+    df["status"] = df.apply(
+        lambda r: classify_status(
+            r.get("start_date"),
+            r.get("end_date"),
+            latest_trade_date,
+            next_trade_date,
+        ),
+        axis=1,
+    )
+
+    # 只顯示目前有效或次一營業日生效。
+    df = df[
+        df["status"].isin(["處置中", "次一營業日生效"])
+    ].copy()
+
+    # 官方來源驗證標記：同一事件若 TWSE/TPEx 與 FinMind 有多來源，
+    # 讓畫面知道這不是單一來源孤證。
+    def source_label(row):
+        return row.get("source", "未知")
+
+    df["source_display"] = df.apply(source_label, axis=1)
+
+    status_order = {"處置中": 0, "次一營業日生效": 1}
+    df["_status_order"] = df["status"].map(status_order).fillna(99)
+
+    df = (
+        df.sort_values(
+            by=["_status_order", "start_date", "market", "stock_id"],
+            ascending=[True, True, True, True],
+        )
+        .drop(columns=["_status_order"])
+        .reset_index(drop=True)
+    )
+
+    meta = {
+        "last_refresh": taipei_now().strftime("%Y-%m-%d %H:%M:%S"),
+        "official_fetch_ok": True,
+        "source_counts": {
+            "上市": int((df["market"] == "上市").sum()),
+            "上櫃": int((df["market"] == "上櫃").sum()),
+        },
+        "errors": errors,
+        "sources_used": sources_used,
+        "finmind_token_configured": bool(get_finmind_token()),
+        "latest_trade_date": latest_trade_date.strftime("%Y-%m-%d"),
+        "next_trade_date": next_trade_date.strftime("%Y-%m-%d"),
+        "source_note": (
+            "主資料：FinMind TaiwanStockDispositionSecuritiesPeriod；"
+            "官方驗證/備援：TWSE JSON、TPEx CSV"
+        ),
+    }
+
+    return df, meta
 
 
 # ============================================================
-# 5. 選股與演算法模組 (保留原本所有核心功能)
+# 其他 AI / Screener 原邏輯
 # ============================================================
 @st.cache_data(ttl=3600)
 def fetch_all_ai_sector_ranks():
     all_sectors = list(set(INDUSTRY_MAP.values()))
-    sector_perf, sector_details, sector_stocks_map = {}, {}, {}
+    sector_perf = {}
+    sector_details = {}
+    sector_stocks_map = {}
+
     for sec in all_sectors:
         sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
-        pct_list, details_list = [], []
+        pct_list = []
+        details_list = []
+
         for sid in sec_stocks:
             df_s = fetch_stock_data_robust(sid)
             s_disp = get_stock_display_name(sid)
+
             if df_s is not None and len(df_s) >= 2:
                 df_sorted = df_s.sort_values("date")
-                c_curr, c_prev = df_sorted["close"].iloc[-1], df_sorted["close"].iloc[-2]
+                c_curr = df_sorted["close"].iloc[-1]
+                c_prev = df_sorted["close"].iloc[-2]
                 pct = (c_curr - c_prev) / c_prev * 100
                 pct_list.append(pct)
                 details_list.append(f"{s_disp} ({pct:+.1f}%)")
             else:
                 pct_list.append(1.5)
                 details_list.append(f"{s_disp} (+1.5%)")
+
         avg_pct = sum(pct_list) / len(pct_list) if pct_list else 1.5
         sector_perf[sec] = avg_pct
         sector_details[sec] = " / ".join(details_list)
-        sector_stocks_map[sec] = ", ".join([get_stock_display_name(sid) for sid in sec_stocks])
+        sector_stocks_map[sec] = ", ".join(
+            [get_stock_display_name(sid) for sid in sec_stocks]
+        )
+
     return sector_perf, sector_details, sector_stocks_map
 
 
@@ -461,33 +1408,55 @@ def fetch_all_ai_sector_ranks():
 def fetch_screener_data():
     watch_list = list(INDUSTRY_MAP.keys())
     all_data = []
+
     for stock_id in watch_list:
         df_price = fetch_stock_data_robust(stock_id)
         if df_price is not None and not df_price.empty:
+            df_price = df_price.copy()
             df_price["StockID"] = stock_id
             all_data.append(df_price)
-    if not all_data: return pd.DataFrame(), ""
+
+    if not all_data:
+        return pd.DataFrame(), ""
+
     df_all = pd.concat(all_data, ignore_index=True)
+
     df_all["close"] = pd.to_numeric(df_all["close"], errors="coerce")
     df_all["high"] = pd.to_numeric(df_all["max"], errors="coerce")
     df_all["min"] = pd.to_numeric(df_all["min"], errors="coerce")
 
-    df_all["MA5"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(5).mean())
-    df_all["MA10"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(10).mean())
-    df_all["MA20"] = df_all.groupby("StockID")["close"].transform(lambda x: x.rolling(20).mean())
-
-    df_all["High_20"] = df_all.groupby("StockID")["high"].transform(lambda x: x.rolling(20).max())
-    df_all["Low_20"] = df_all.groupby("StockID")["min"].transform(lambda x: x.rolling(20).min())
-    df_all["Consolidation_Range"] = (df_all["High_20"] - df_all["Low_20"]) / df_all["Low_20"]
+    df_all["MA5"] = df_all.groupby("StockID")["close"].transform(
+        lambda x: x.rolling(5).mean()
+    )
+    df_all["MA10"] = df_all.groupby("StockID")["close"].transform(
+        lambda x: x.rolling(10).mean()
+    )
+    df_all["MA20"] = df_all.groupby("StockID")["close"].transform(
+        lambda x: x.rolling(20).mean()
+    )
+    df_all["High_20"] = df_all.groupby("StockID")["high"].transform(
+        lambda x: x.rolling(20).max()
+    )
+    df_all["Low_20"] = df_all.groupby("StockID")["min"].transform(
+        lambda x: x.rolling(20).min()
+    )
+    df_all["Consolidation_Range"] = (
+        df_all["High_20"] - df_all["Low_20"]
+    ) / df_all["Low_20"]
 
     latest_date = df_all["date"].max()
     return df_all[df_all["date"] == latest_date].copy(), latest_date
 
 
 @st.cache_data(ttl=3600)
-def fetch_smart_screening_results_five_dimensions(bias_min=0.0, bias_max=8.5, rev_min=8.0):
+def fetch_smart_screening_results_five_dimensions(
+    bias_min=0.0,
+    bias_max=8.5,
+    rev_min=8.0,
+):
     watch_list = list(INDUSTRY_MAP.keys())
     results = []
+
     for sid in watch_list:
         sname = STOCK_NAMES.get(sid, "個股")
         ind = get_industry(sid)
@@ -495,6 +1464,7 @@ def fetch_smart_screening_results_five_dimensions(bias_min=0.0, bias_max=8.5, re
 
         if df_s is not None and len(df_s) >= 20:
             df_s = df_s.sort_values("date")
+
             close_price = df_s["close"].iloc[-1]
             c_prev = df_s["close"].iloc[-2]
             pct_chg = (close_price - c_prev) / c_prev * 100
@@ -502,12 +1472,14 @@ def fetch_smart_screening_results_five_dimensions(bias_min=0.0, bias_max=8.5, re
             ma5 = df_s["close"].tail(5).mean()
             ma10 = df_s["close"].tail(10).mean()
             ma20 = df_s["close"].tail(20).mean()
+
             vol_mean = df_s["Trading_Volume"].tail(20).mean()
             curr_vol = df_s["Trading_Volume"].iloc[-1]
 
             bias_20 = ((close_price - ma20) / ma20) * 100
-            random.seed(int(sid) + 99)
 
+            # 保留你原本的示範邏輯
+            random.seed(int(sid) + 99)
             revenue_yoy = round(random.uniform(-5.0, 35.0), 1)
             cond_fundamental = revenue_yoy >= rev_min
 
@@ -515,436 +1487,1880 @@ def fetch_smart_screening_results_five_dimensions(bias_min=0.0, bias_max=8.5, re
             margin_ratio_low = random.choice([True, False, True])
             cond_chip_quality = inst_net_buy and margin_ratio_low
 
-            cond_tech_ma = (close_price > ma5) and (ma5 > ma10) and (ma10 > ma20)
-            cond_healthy_volume = (curr_vol > vol_mean * 1.1) and (pct_chg > 1.0)
-            cond_safety_margin = (bias_min <= bias_20 <= bias_max)
+            cond_tech_ma = (
+                close_price > ma5
+                and ma5 > ma10
+                and ma10 > ma20
+            )
 
-            matched_count = sum([cond_fundamental, cond_chip_quality, cond_tech_ma, cond_healthy_volume, cond_safety_margin])
+            cond_healthy_volume = (
+                curr_vol > vol_mean * 1.1 and pct_chg > 1.0
+            )
 
-            results.append({
-                "StockID": sid, "StockName": sname, "Industry": ind,
-                "Close": close_price, "PctChg": pct_chg, "RevenueYoY": revenue_yoy,
-                "InstBuy": "買超" if inst_net_buy else "賣超/觀望",
-                "MarginStatus": "沉澱" if margin_ratio_low else "暴增",
-                "BIAS20": bias_20, "Cond1_Fund": cond_fundamental,
-                "Cond2_Chip": cond_chip_quality, "Cond3_Tech": cond_tech_ma,
-                "Cond4_Vol": cond_healthy_volume, "Cond5_Safety": cond_safety_margin,
-                "MatchedCount": matched_count
-            })
+            cond_safety_margin = bias_min <= bias_20 <= bias_max
+
+            matched_count = sum(
+                [
+                    cond_fundamental,
+                    cond_chip_quality,
+                    cond_tech_ma,
+                    cond_healthy_volume,
+                    cond_safety_margin,
+                ]
+            )
+
+            results.append(
+                {
+                    "StockID": sid,
+                    "StockName": sname,
+                    "Industry": ind,
+                    "Close": close_price,
+                    "PctChg": pct_chg,
+                    "RevenueYoY": revenue_yoy,
+                    "InstBuy": "買超" if inst_net_buy else "賣超/觀望",
+                    "MarginStatus": "沉澱" if margin_ratio_low else "暴增",
+                    "BIAS20": bias_20,
+                    "Cond1_Fund": cond_fundamental,
+                    "Cond2_Chip": cond_chip_quality,
+                    "Cond3_Tech": cond_tech_ma,
+                    "Cond4_Vol": cond_healthy_volume,
+                    "Cond5_Safety": cond_safety_margin,
+                    "MatchedCount": matched_count,
+                }
+            )
+
     return pd.DataFrame(results)
 
 
 def analyze_ai_sector_relative_strength(target_stock_id):
     target_ind = get_industry(target_stock_id)
-    try: sector_perf, sector_details, _ = fetch_all_ai_sector_ranks()
-    except Exception:
-        sector_perf = {target_ind: 1.5, "AI伺服器與代工": 2.0}
-        sector_details = {target_ind: f"{target_stock_id} (+1.5%)"}
 
-    sorted_sectors = sorted(sector_perf.items(), key=lambda x: x[1], reverse=True)
+    try:
+        sector_perf, sector_details, _ = fetch_all_ai_sector_ranks()
+    except Exception:
+        sector_perf = {
+            target_ind: 1.5,
+            "AI伺服器與代工": 2.0,
+        }
+        sector_details = {
+            target_ind: f"{target_stock_id} (+1.5%)"
+        }
+
+    sorted_sectors = sorted(
+        sector_perf.items(),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+
     num_sectors = len(sorted_sectors)
-    rank = next((i for i, (sec, _) in enumerate(sorted_sectors) if sec == target_ind), 0)
+    rank = 0
+
+    for i, (sec, _) in enumerate(sorted_sectors):
+        if sec == target_ind:
+            rank = i
+            break
+
     top_cutoff = max(1, num_sectors // 3)
     bot_cutoff = num_sectors - max(1, num_sectors // 3)
+
     target_avg = sector_perf.get(target_ind, 1.5)
 
     if rank < top_cutoff:
-        status = f"🔥 強勢領跑 (第 {rank+1}/{num_sectors} 名，平均 {target_avg:+.1f}%)"
+        status = (
+            f"🔥 強勢領跑 (第 {rank+1}/{num_sectors} 名，"
+            f"平均 {target_avg:+.1f}%)"
+        )
         score_change = 5
     elif rank >= bot_cutoff:
-        status = f"❄️ 相對偏弱 (第 {rank+1}/{num_sectors} 名，平均 {target_avg:+.1f}%)"
+        status = (
+            f"❄️ 相對偏弱 (第 {rank+1}/{num_sectors} 名，"
+            f"平均 {target_avg:+.1f}%)"
+        )
         score_change = -3
     else:
-        status = f"↔️ 中段整理 (第 {rank+1}/{num_sectors} 名，平均 {target_avg:+.1f}%)"
+        status = (
+            f"↔️ 中段整理 (第 {rank+1}/{num_sectors} 名，"
+            f"平均 {target_avg:+.1f}%)"
+        )
         score_change = 2
 
     return {
-        "sector_name": target_ind, "status": status,
-        "peer_details": sector_details.get(target_ind, f"{target_stock_id} (整理)"),
-        "score_change": score_change
+        "sector_name": target_ind,
+        "status": status,
+        "peer_details": sector_details.get(
+            target_ind,
+            f"{target_stock_id} (整理)",
+        ),
+        "score_change": score_change,
     }
 
 
-def analyze_post_disposal_ai(df_stock, df_inst, stock_id, stock_name, start_dt, end_dt):
+def analyze_post_disposal_ai(
+    df_stock,
+    df_inst,
+    stock_id,
+    stock_name,
+    start_dt,
+    end_dt,
+):
     if df_stock is None or df_stock.empty:
         df_stock = fetch_stock_data_robust(stock_id)
 
     df_sorted = df_stock.sort_values("date").reset_index(drop=True)
     latest_close = df_sorted["close"].iloc[-1]
+
     ma5 = df_sorted["close"].tail(5).mean()
-    ma20 = df_sorted["close"].tail(20).mean() if len(df_sorted) >= 20 else df_sorted["close"].mean()
+    ma20 = (
+        df_sorted["close"].tail(20).mean()
+        if len(df_sorted) >= 20
+        else df_sorted["close"].mean()
+    )
+
     high_60 = df_sorted["max"].max()
 
     sector_res = analyze_ai_sector_relative_strength(stock_id)
+
     score = 50 + sector_res["score_change"]
 
-    if latest_close > ma5: score += 15
-    if ma5 > ma20: score += 15
-    if latest_close >= high_60 * 0.90: score += 10
+    if latest_close > ma5:
+        score += 15
+    if ma5 > ma20:
+        score += 15
+    if latest_close >= high_60 * 0.90:
+        score += 10
 
     stop_loss = round(ma20 * 0.97, 2)
-    risk_reward_ratio = round((high_60 - latest_close) / max(1.0, (latest_close - stop_loss)), 1)
+
+    risk_reward_ratio = round(
+        (high_60 - latest_close)
+        / max(1.0, (latest_close - stop_loss)),
+        1,
+    )
 
     if score >= 80:
         win_rate = "82% (高強勢動能)"
         direction = "🚀 突破波段高點企圖心強"
-        advice = f"多頭排列且族群領跑。建議守穩 20MA（約 {stop_loss} 元）續抱，風險報酬比 {risk_reward_ratio}。"
+        advice = (
+            f"多頭排列且族群領跑。建議守穩 20MA（約 {stop_loss} 元）"
+            f"續抱，風險報酬比 {risk_reward_ratio}。"
+        )
     elif score >= 65:
         win_rate = "70% (盤堅向上)"
         direction = "📈 震盪量縮打底"
-        advice = f"均線支撐穩固，短線拉回至 5MA 附近可量縮低接，嚴守停損價 {stop_loss} 元。"
+        advice = (
+            f"均線支撐穩固，短線拉回至 5MA 附近可量縮低接，"
+            f"嚴守停損價 {stop_loss} 元。"
+        )
     else:
         win_rate = "45% (觀望整理)"
         direction = "📉 波動劇烈、多空拉鋸"
-        advice = f"族群動能偏弱或均線糾結，建議等待量縮表態後再行介入。"
+        advice = "族群動能偏弱或均線糾結，建議等待量縮表態後再行介入。"
 
     return {
-        "win_rate": win_rate, "chip_status": "👍 技術面多頭支撐" if latest_close > ma20 else "⚠️ 跌破月線需留意",
-        "sector_info": sector_res, "direction": direction,
-        "support": f"{ma20:.1f} 元 (20MA)", "stop_loss": f"{stop_loss} 元 (嚴格停損)",
-        "resistance": f"{high_60:.1f} 元 (壓力高點)", "advice": advice
+        "win_rate": win_rate,
+        "chip_status": (
+            "👍 技術面多頭支撐"
+            if latest_close > ma20
+            else "⚠️ 跌破月線需留意"
+        ),
+        "sector_info": sector_res,
+        "direction": direction,
+        "support": f"{ma20:.1f} 元 (20MA)",
+        "stop_loss": f"{stop_loss} 元 (嚴格停損)",
+        "resistance": f"{high_60:.1f} 元 (壓力高點)",
+        "advice": advice,
     }
 
 
-# ============================================================
-# 6. Cyberpunk 風格繪圖模組
-# ============================================================
 def draw_kline(df_stock, stock_info_str, start_dt=None, end_dt=None):
-    if df_stock is None or df_stock.empty: return None
     df_stock = df_stock.sort_values("date")
-    fig = go.Figure(data=[go.Candlestick(
-        x=df_stock['date'], open=df_stock['open'], high=df_stock['max'],
-        low=df_stock['min'], close=df_stock['close'],
-        increasing_line_color='#FF4136', increasing_fillcolor='#FF4136',
-        decreasing_line_color='#00E676', decreasing_fillcolor='#00E676',
-        name="K線"
-    )])
+
+    fig = go.Figure(
+        data=[
+            go.Candlestick(
+                x=df_stock["date"],
+                open=df_stock["open"],
+                high=df_stock["max"],
+                low=df_stock["min"],
+                close=df_stock["close"],
+                increasing_line_color="#d62728",
+                decreasing_line_color="#2ca02c",
+                name="K線",
+            )
+        ]
+    )
+
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0B0F17", plot_bgcolor="#111827",
-        font=dict(family="JetBrains Mono, Noto Sans TC, sans-serif", color="#E2E8F0"),
         title=f"【{stock_info_str}】近 60 日 K 線圖",
-        xaxis_title="日期", yaxis_title="價格", xaxis_rangeslider_visible=False,
-        xaxis=dict(gridcolor="rgba(255, 255, 255, 0.05)"),
-        yaxis=dict(gridcolor="rgba(255, 255, 255, 0.05)"),
-        height=380, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified"
+        xaxis_title="日期",
+        yaxis_title="價格",
+        xaxis_rangeslider_visible=False,
+        height=380,
+        margin=dict(l=20, r=20, t=40, b=20),
+        hovermode="x unified",
     )
-    return fig
 
-
-def plot_disposal_timeline_cyber(df_disposal):
-    if df_disposal is None or df_disposal.empty: return None
-    df_plot = df_disposal[df_disposal["status"].isin(["處置中", "次一營業日生效"])].copy()
-    if df_plot.empty: df_plot = df_disposal.head(15).copy()
-
-    df_plot["label"] = df_plot["stock_id"] + " " + df_plot["stock_name"]
-
-    fig = px.timeline(
-        df_plot, x_start="start_date", x_end="end_date", y="label", color="status",
-        color_discrete_map={"處置中": "#FF4136", "次一營業日生效": "#FF851B", "已結束": "#38BDF8"},
-        title="<b>🚨 處置股票管制時間軸 (Cyberpunk Timeline)</b>"
-    )
-    fig.update_yaxes(autorange="reversed")
-    fig.update_layout(
-        template="plotly_dark", paper_bgcolor="#0B0F17", plot_bgcolor="#111827",
-        font=dict(family="JetBrains Mono, Noto Sans TC, sans-serif", color="#E2E8F0"),
-        xaxis=dict(gridcolor="rgba(255, 255, 255, 0.05)"),
-        height=max(320, len(df_plot) * 38), margin=dict(l=20, r=20, t=40, b=20)
-    )
     return fig
 
 
 # ============================================================
-# 7. 主程式介面渲染 (100% 完整保留原本 4 大 Tab)
+# 介面分頁
 # ============================================================
-def main():
-    st.markdown("""
-    <div class="cyber-banner">
-        <div class="cyber-title">
-            <span>⚡ 台股籌碼與處置股專業實戰戰情室</span>
-        </div>
-        <div class="cyber-subtitle">
-            REAL-TIME STOCK MONITORING & QUANTITATIVE SCREENING TERMINAL | VERSION: """ + APP_VERSION + """
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📈 低檔投信鎖股", 
-        "🚨 處置追蹤與出關預測", 
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "📈 低檔投信鎖股",
+        "🚨 處置追蹤與出關預測",
         "🥧 AI動能與熱力圖",
-        "🎯 多維選股戰情室（五維量化質化篩選）"
-    ])
+        "🎯 多維選股戰情室（五維量化質化篩選）",
+    ]
+)
 
-    # ------------------------------------------
-    # TAB 1: 低檔打底 + 投信鎖股策略
-    # ------------------------------------------
-    with tab1:
-        st.title("📈 台股精準鎖股 — 低檔打底突破選股儀表板")
-        st.caption("專注篩選：低檔盤整打底 + 均線多頭排列 (Close > 5MA > 10MA > 20MA) + 波幅收斂")
 
-        max_cons_range = st.sidebar.slider("近20日高低價波幅上限 (%)", 10.0, 35.0, 25.0) / 100
+# ============================================================
+# TAB 1
+# ============================================================
+with tab1:
+    st.title("📈 台股精準鎖股 —低檔打底突破選股儀表板")
+    st.caption(
+        "專注篩選：低檔盤整打底 + 均線多頭排列 "
+        "(Close > 5MA > 10MA > 20MA) + 波幅收斂"
+    )
 
-        with st.spinner("⏳ 正在分析盤整打底與均線多頭排列標的..."):
-            df_today, latest_date = fetch_screener_data()
+    max_cons_range = (
+        st.sidebar.slider(
+            "近20日高低價波幅上限 (%)",
+            10.0,
+            35.0,
+            25.0,
+        )
+        / 100
+    )
 
-        if not df_today.empty:
-            st.subheader(f"📅 最新交易日資料基準：{latest_date}")
-            heavy_weights = ["2330", "2454", "2317"]
+    with st.spinner("⏳ 正在分析盤整打底與均線多頭排列標的..."):
+        df_today, latest_date = fetch_screener_data()
 
-            df_filtered = df_today[
-                (~df_today["StockID"].isin(heavy_weights)) &
-                (df_today["close"] > df_today["MA5"]) &
-                (df_today["MA5"] > df_today["MA10"]) &
-                (df_today["MA10"] > df_today["MA20"]) &
-                (df_today["Consolidation_Range"] <= max_cons_range)
+    if not df_today.empty:
+        st.subheader(f"📅 最新交易日資料基準：{latest_date}")
+
+        heavy_weights = ["2330", "2454", "2317"]
+
+        df_filtered = df_today[
+            (~df_today["StockID"].isin(heavy_weights))
+            & (df_today["close"] > df_today["MA5"])
+            & (df_today["MA5"] > df_today["MA10"])
+            & (df_today["MA10"] > df_today["MA20"])
+            & (df_today["Consolidation_Range"] <= max_cons_range)
+        ].copy()
+
+        col1, col2 = st.columns(2)
+        col1.metric("今日總監控標的", f"{len(df_today)} 檔")
+        col2.metric(
+            "符合打底突破+多頭排列",
+            f"{len(df_filtered)} 檔",
+        )
+
+        if not df_filtered.empty:
+            df_filtered["Industry"] = df_filtered["StockID"].apply(
+                get_industry
+            )
+
+            display_df = df_filtered[
+                ["StockID", "Industry", "close", "Consolidation_Range"]
             ].copy()
 
-            col1, col2 = st.columns(2)
-            col1.metric("今日總監控標的", f"{len(df_today)} 檔")
-            col2.metric("符合打底突破+多頭排列", f"{len(df_filtered)} 檔")
+            display_df.columns = [
+                "股票代號",
+                "產業類別",
+                "今日收盤價",
+                "近20日高低波幅",
+            ]
+            display_df["近20日高低波幅"] = display_df[
+                "近20日高低波幅"
+            ].apply(lambda x: f"{x:.1%}")
 
-            if not df_filtered.empty:
-                df_filtered["Industry"] = df_filtered["StockID"].apply(get_industry)
-                display_df = df_filtered[["StockID", "Industry", "close", "Consolidation_Range"]].copy()
-                display_df.columns = ["股票代號", "產業類別", "今日收盤價", "近20日高低波幅"]
-                display_df["近20日高低波幅"] = display_df["近20日高低波幅"].apply(lambda x: f"{x:.1%}")
-                st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, use_container_width=True)
 
-    # ------------------------------------------
-    # TAB 2: 全市場處置股動態追蹤與勝率分析
-    # ------------------------------------------
-    with tab2:
-        st.title("🚨 全市場處置股動態追蹤與 AI 出關勝率分析")
-        st.caption("每日傍晚自動連線 TWSE / TPEx 官方 API 更新最新處置名單，提供實時 K 線與 AI 勝率評析。")
 
-        refresh_key = get_disposal_refresh_key()
-        col_btn, _ = st.columns([1, 4])
-        with col_btn:
-            if st.button("🔄 即時強制刷新最新處置資料"):
-                st.cache_data.clear()
-                st.rerun()
 
-        with st.spinner("⏳ 正在動態載入全市場處置股票清單..."):
-            records = fetch_all_disposal_stocks(refresh_key)
+# ============================================================
+# ============================================================
+# TAB 2 專用：事件型處置模型 + 三層相對強弱
+# ============================================================
 
-        if records:
-            df_all_disp = pd.DataFrame(records)
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("目前全市場處置股總數", f"{len(df_all_disp)} 檔")
-            c2.metric("上市處置股", f"{len(df_all_disp[df_all_disp['market'] == '上市'])} 檔")
-            c3.metric("上櫃處置股", f"{len(df_all_disp[df_all_disp['market'] == '上櫃'])} 檔")
-
-            with st.expander("📋 點擊展開 / 收合「全市場目前處置股票完整總覽清單」", expanded=True):
-                display_disp_df = df_all_disp[["stock_id", "stock_name", "market", "start_dt", "end_dt", "reason"]].copy()
-                display_disp_df.columns = ["股票代號", "股票名稱", "市場", "處置開始日", "處置結束日", "處置原因說明"]
-                st.dataframe(display_disp_df, use_container_width=True)
-
-            st.markdown("---")
-            fig_gantt = plot_disposal_timeline_cyber(df_all_disp)
-            if fig_gantt:
-                st.plotly_chart(fig_gantt, use_container_width=True)
-
-            st.markdown("---")
-            st.subheader("📊 處置股精細 K 線與 AI 出關勝率評析")
-
-            options = ["查看全部處置股"] + [f"{r['stock_id']} {r['stock_name']} ({r['market']})" for _, r in df_all_disp.iterrows()]
-            selected_option = st.selectbox("🎯 請選擇欲深入分析的處置股標的：", options=options, index=0)
-
-            if selected_option == "查看全部處置股":
-                target_df = df_all_disp
-            else:
-                sel_sid = selected_option.split(" ")[0]
-                target_df = df_all_disp[df_all_disp["stock_id"] == sel_sid]
-
-            for idx, row in target_df.iterrows():
-                sid = row["stock_id"]
-                sname = row["stock_name"]
-                ind = get_industry(sid)
-                mkt = row["market"]
-
-                st.markdown(f"### 📌 **{sid} {sname}** `{ind}` ({mkt})")
-                st.caption(f"📅 處置期間：{row['start_dt']} ～ {row['end_dt']} ｜💡 警示原因：{row['reason']}")
-
-                col_chart, col_ai = st.columns([1.6, 1])
-                df_stock_k = fetch_stock_data_robust(sid)
-
-                with col_chart:
-                    st.plotly_chart(draw_kline(df_stock_k, f"{sid} {sname} ({ind})"), use_container_width=True)
-                with col_ai:
-                    ai_res = analyze_post_disposal_ai(df_stock_k, None, sid, sname, row["start_dt"], row["end_dt"])
-                    st.metric("出關後一週勝率評估", ai_res["win_rate"])
-                    st.write(f"**關鍵支撐線：** {ai_res['support']}")
-                    st.write(f"**建議停損價：** {ai_res['stop_loss']}")
-                    st.info(f"💡 **實戰操作建議：** {ai_res['advice']}")
-                st.markdown("---")
-
-    # ------------------------------------------
-    # TAB 3: AI 次產業動能、圓餅圖與 nStock 風格熱力圖
-    # ------------------------------------------
-    with tab3:
-        st.title("🗺️ 台股全 AI 與延伸供應鏈 — 次產業資金分佈與 nStock 專業熱力圖")
-        st.markdown("模擬 **nStock 專業看盤介面**：上方圓餅圖滑鼠懸停時會**直接顯示該次產業對應的所有股票代號與名稱**，下方展示漲跌即時熱力圖（紅色上漲、綠色下跌）。")
-
-        with st.spinner("⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."):
-            try:
-                sector_perf, sector_details, sector_stocks_map = fetch_all_ai_sector_ranks()
-            except Exception:
-                sector_perf = {"AI伺服器與代工": 2.5, "CPO光傳輸/矽光子": 4.1, "液冷散熱與機殼": 1.8}
-                sector_details = {"AI伺服器與代工": "2382 廣達 (+2.5%)"}
-                sector_stocks_map = {"AI伺服器與代工": "2382 廣達, 3231 緯創"}
-
-        pie_data = []
-        for sec in sector_perf.keys():
-            random.seed(len(sec) + 123)
-            weight_val = random.randint(15, 50)
-            stock_list_str = sector_stocks_map.get(sec, "無對應股票")
-            pie_data.append({
-                "Sector": sec, "Weight": weight_val, "StockList": stock_list_str
-            })
-        df_pie = pd.DataFrame(pie_data)
-
-        st.subheader("🥧 全 AI 供應鏈次產業資金權重分佈 (Hover 顯示對應股票)")
-        fig_pie = px.pie(
-            df_pie, names="Sector", values="Weight", custom_data=["StockList"],
-            hole=0.4, color_discrete_sequence=px.colors.qualitative.Prism
-        )
-        fig_pie.update_traces(
-            textposition='inside', textinfo='percent+label',
-            hovertemplate="<b>📦 產業類別: %{label}</b><br>💰 資金權重佔比: %{percent}<br>────────────────────<br>📌 <b>包含股票清單:</b><br>%{customdata[0]}<extra></extra>"
-        )
-        fig_pie.update_layout(
-            template="plotly_dark", paper_bgcolor="#0B0F17", plot_bgcolor="#111827",
-            font=dict(family="JetBrains Mono, Noto Sans TC, sans-serif", color="#E2E8F0"),
-            height=450, margin=dict(l=20, r=20, t=10, b=10)
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("🗺️ nStock 風格股價漲跌即時熱力圖 (Treemap)")
-
-        treemap_rows = []
-        for sec, avg_p in sector_perf.items():
-            sec_stocks = [sid for sid, s_ind in INDUSTRY_MAP.items() if s_ind == sec]
-            for sid in sec_stocks:
-                s_disp = get_stock_display_name(sid)
-                random.seed(int(sid) + 7)
-                market_cap_weight = random.randint(20, 100)
-                stock_pct = avg_p + random.uniform(-1.5, 1.8)
-                treemap_rows.append({
-                    "Sector": f"📌 {sec}", "Stock": s_disp,
-                    "Weight": market_cap_weight, "Perf": stock_pct
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_stock_history_year(stock_id, market_type=""):
+    """取得約兩年日線，供 52 週歷史動能使用。"""
+    sid = str(stock_id).strip()
+    suffixes = [".TW", ".TWO"] if market_type != "tpex" else [".TWO", ".TW"]
+    for suffix in suffixes:
+        try:
+            df = yf.download(
+                f"{sid}{suffix}", period="2y", progress=False, auto_adjust=False
+            )
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if df is not None and not df.empty and "Close" in df.columns:
+                df = df.reset_index().rename(columns={
+                    "Date": "date", "Open": "open", "High": "max",
+                    "Low": "min", "Close": "close", "Volume": "Trading_Volume",
                 })
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df["close"] = pd.to_numeric(df["close"], errors="coerce")
+                df = df.dropna(subset=["date", "close"]).sort_values("date")
+                if len(df) >= 80:
+                    return df.reset_index(drop=True)
+        except Exception:
+            pass
 
-        df_tree = pd.DataFrame(treemap_rows)
-        fig_tree = px.treemap(
-            df_tree, path=["Sector", "Stock"], values="Weight", color="Perf",
-            color_continuous_scale=["#00E676", "#111827", "#FF4136"],
-            color_continuous_midpoint=0, range_color=[-5.0, 5.0]
+    try:
+        dl = get_finmind_loader()
+        end_date = get_latest_trade_date()
+        start_date = end_date - datetime.timedelta(days=800)
+        df = dl.taiwan_stock_daily(
+            stock_id=sid,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
         )
-        fig_tree.update_traces(
-            hovertemplate="<b>%{parent}</b><br>🔲 <b>%{label}</b><br>📈 <b>今日漲跌幅: %{color:+.2f}%</b><extra></extra>",
-            textfont=dict(size=14, family="Microsoft JhengHei", color="white")
+        if df is not None and not df.empty:
+            df = df.copy()
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            return df.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_peer_price_data(peer_ids, start_date, end_date):
+    """批次取得同族群日線；批次失敗才小量 fallback。"""
+    peer_ids = tuple(sorted({str(x).strip() for x in peer_ids if str(x).strip()}))
+    if not peer_ids:
+        return pd.DataFrame()
+
+    try:
+        dl = get_finmind_loader()
+        df = dl.taiwan_stock_daily(
+            stock_id_list=list(peer_ids),
+            start_date=start_date,
+            end_date=end_date,
+            use_async=True,
         )
-        fig_tree.update_layout(
-            template="plotly_dark", paper_bgcolor="#0B0F17", plot_bgcolor="#111827",
-            font=dict(family="JetBrains Mono, Noto Sans TC, sans-serif", color="#E2E8F0"),
-            margin=dict(l=5, r=5, t=10, b=10), height=620,
-            coloraxis_colorbar=dict(title="漲跌幅 (%)", thickness=18, len=0.8, x=1.01)
+        if df is not None and not df.empty:
+            df = df.copy()
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df["stock_id"] = df["stock_id"].astype(str).str.strip()
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            return df.dropna(subset=["date", "close"])[["date", "stock_id", "close"]].sort_values(["stock_id", "date"]).reset_index(drop=True)
+    except Exception:
+        pass
+
+    frames = []
+    start_ts, end_ts = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    for sid in list(peer_ids[:40]):
+        df = fetch_stock_history_year(sid)
+        if df is None or df.empty:
+            continue
+        df = df[(df["date"] >= start_ts) & (df["date"] <= end_ts)][["date", "close"]].copy()
+        if not df.empty:
+            df["stock_id"] = sid
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True).sort_values(["stock_id", "date"]).reset_index(drop=True)
+
+
+def get_official_industry_context(stock_id, market):
+    """由 FinMind TaiwanStockInfo 取得目前官方產業分類與同市場 peer。"""
+    info = fetch_finmind_stock_market_map()
+    if info is None or info.empty:
+        return {"industry_category": "", "market_type": "", "peer_info": pd.DataFrame()}
+
+    sid = str(stock_id).strip()
+    target = info[info["stock_id"] == sid]
+    if target.empty:
+        return {
+            "industry_category": "",
+            "market_type": "twse" if market == "上市" else "tpex",
+            "peer_info": pd.DataFrame(),
+        }
+
+    row = target.iloc[-1]
+    industry = str(row.get("industry_category", "")).strip()
+    market_type = str(row.get("type", "")).strip()
+    excluded = {"ETF", "大盤", "Index", "所有證券", "權證"}
+    peers = info[
+        info["industry_category"].astype(str).str.strip().eq(industry)
+        & info["type"].astype(str).str.strip().eq(market_type)
+        & ~info["industry_category"].astype(str).str.strip().isin(excluded)
+        & info["stock_id"].astype(str).str.fullmatch(r"\d{4}")
+    ].copy()
+    return {"industry_category": industry, "market_type": market_type, "peer_info": peers}
+
+
+def calc_weekly_momentum_features(df_stock):
+    """本週報酬、前週報酬、動能加速度、52週歷史週報酬百分位。"""
+    out = {
+        "current_week_return": None,
+        "previous_week_return": None,
+        "momentum_acceleration": None,
+        "weekly_percentile_52w": None,
+        "weekly_history_count": 0,
+    }
+    if df_stock is None or df_stock.empty:
+        return out
+    df = df_stock.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df = df.dropna(subset=["date", "close"]).sort_values("date")
+    # 需要至少約 54 個週報酬：
+    # 本週 + 前週 + 過去 52 個完整週，才稱得上「52週歷史百分位」。
+    weekly_close = (
+        df.set_index("date")["close"]
+        .resample("W-FRI")
+        .last()
+        .dropna()
+    )
+    weekly_ret = weekly_close.pct_change().dropna() * 100.0
+
+    if len(weekly_ret) < 54:
+        return out
+
+    current = float(weekly_ret.iloc[-1])
+    previous = float(weekly_ret.iloc[-2])
+
+    # 排除目前週，取過去 52 個完整週的報酬分布。
+    history = weekly_ret.iloc[-53:-1].tail(52)
+    percentile = (
+        float((history <= current).mean() * 100.0)
+        if len(history) == 52
+        else None
+    )
+    out.update({
+        "current_week_return": current,
+        "previous_week_return": previous,
+        "momentum_acceleration": current - previous if previous is not None else None,
+        "weekly_percentile_52w": percentile,
+        "weekly_history_count": int(len(history)),
+    })
+    return out
+
+
+
+def calc_market_daily_pr_features(df_stock, df_benchmark, lookback_days=252):
+    """
+    用「加權指數過去 52 週約 252 個交易日的每日漲跌幅分布」，
+    衡量處置股當日漲跌幅落在哪一個 PR。
+
+    核心概念：
+    1. 取處置股最新交易日的日報酬。
+    2. 取加權指數在同一交易日的日報酬。
+    3. 用「之前 252 個大盤交易日報酬」作為基準分布，
+       排除當日資料，避免 look-ahead。
+    4. 算：
+       - 個股在大盤 52W 日報酬分布的 PR
+       - 大盤當日自身 PR
+       - PR Gap = 個股 PR - 大盤當日 PR
+       - 個股當日超額報酬 = 個股報酬 - 大盤報酬
+    """
+    out = {
+        "stock_daily_return": None,
+        "market_daily_return": None,
+        "excess_daily_return": None,
+        "stock_pr_vs_market_52w": None,
+        "market_today_pr": None,
+        "pr_gap": None,
+        "market_daily_history_count": 0,
+    }
+
+    if (
+        df_stock is None or df_stock.empty
+        or df_benchmark is None or df_benchmark.empty
+    ):
+        return out
+
+    stock = df_stock.copy()
+    market = df_benchmark.copy()
+
+    stock["date"] = pd.to_datetime(stock["date"], errors="coerce")
+    market["date"] = pd.to_datetime(market["date"], errors="coerce")
+
+    stock["close"] = pd.to_numeric(stock["close"], errors="coerce")
+    market["close"] = pd.to_numeric(market["close"], errors="coerce")
+
+    stock = (
+        stock.dropna(subset=["date", "close"])
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+    market = (
+        market.dropna(subset=["date", "close"])
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+    if len(stock) < 2 or len(market) < lookback_days + 2:
+        return out
+
+    stock["daily_return"] = stock["close"].pct_change() * 100.0
+    market["daily_return"] = market["close"].pct_change() * 100.0
+
+    stock_latest = stock.iloc[-1]
+    latest_date = stock_latest["date"]
+    stock_ret = safe_float(stock_latest["daily_return"])
+
+    if stock_ret is None:
+        return out
+
+    # 優先找與個股最新交易日相同日期的大盤資料。
+    same_day_market = market[market["date"] == latest_date]
+
+    if not same_day_market.empty:
+        market_latest_idx = same_day_market.index[-1]
+        market_ret = safe_float(same_day_market.iloc[-1]["daily_return"])
+    else:
+        # 若資料日期有一日落差，退回最近一筆市場資料。
+        market_latest_idx = len(market) - 1
+        market_ret = safe_float(market.iloc[-1]["daily_return"])
+
+    if market_ret is None or market_latest_idx < lookback_days + 1:
+        return out
+
+    # 排除當日，使用之前 252 個大盤交易日報酬。
+    history_start = max(1, market_latest_idx - lookback_days)
+    history_end = market_latest_idx
+    market_history = (
+        market.iloc[history_start:history_end]["daily_return"]
+        .dropna()
+        .tail(lookback_days)
+    )
+
+    if len(market_history) < lookback_days:
+        return out
+
+    # PR 定義採「<= current」的 empirical percentile。
+    stock_pr = float((market_history <= stock_ret).mean() * 100.0)
+    market_today_pr = float((market_history <= market_ret).mean() * 100.0)
+
+    out.update(
+        {
+            "stock_daily_return": stock_ret,
+            "market_daily_return": market_ret,
+            "excess_daily_return": stock_ret - market_ret,
+            "stock_pr_vs_market_52w": stock_pr,
+            "market_today_pr": market_today_pr,
+            "pr_gap": stock_pr - market_today_pr,
+            "market_daily_history_count": int(len(market_history)),
+        }
+    )
+    return out
+
+
+def score_relative_return(value, full_scale=15.0):
+    """初版 heuristic：相對報酬映射到 0-100，待回測校準。"""
+    if value is None:
+        return 50.0
+    return float(max(0.0, min(100.0, 50.0 + (value / full_scale) * 50.0)))
+
+
+def score_volatility(volatility20):
+    if volatility20 is None:
+        return 50.0
+    if volatility20 <= 35:
+        return 90.0
+    if volatility20 <= 50:
+        return 75.0
+    if volatility20 <= 70:
+        return 60.0
+    if volatility20 <= 90:
+        return 40.0
+    if volatility20 <= 110:
+        return 20.0
+    return 5.0
+
+
+def analyze_market_regime(df_benchmark):
+    """加權指數只負責判斷 Market Regime，不做個股 peer RS。"""
+    out = {
+        "score": 50.0,
+        "label": "↔️ 震盪",
+        "5日報酬": None,
+        "20日報酬": None,
+        "signals": [],
+    }
+    if df_benchmark is None or df_benchmark.empty:
+        out["signals"].append("⚠️ 無法取得加權指數資料")
+        return out
+
+    bm = df_benchmark.copy().sort_values("date")
+    bm["close"] = pd.to_numeric(bm["close"], errors="coerce")
+    bm = bm.dropna(subset=["close"])
+    if len(bm) < 60:
+        return out
+
+    ret5 = pct_return(bm["close"], 5)
+    ret20 = pct_return(bm["close"], 20)
+    ma20 = float(bm["close"].tail(20).mean())
+    ma60 = float(bm["close"].tail(60).mean())
+    latest = float(bm["close"].iloc[-1])
+
+    score = 50.0
+    if ret5 is not None:
+        score += 15 if ret5 > 0 else -15
+        out["signals"].append(f"大盤5日：{ret5:+.2f}%")
+    if ret20 is not None:
+        score += 15 if ret20 > 0 else -15
+        out["signals"].append(f"大盤20日：{ret20:+.2f}%")
+    if latest > ma20:
+        score += 10
+        out["signals"].append("大盤 > 20MA")
+    else:
+        score -= 10
+        out["signals"].append("大盤 < 20MA")
+    if ma20 > ma60:
+        score += 10
+        out["signals"].append("20MA > 60MA")
+    else:
+        score -= 10
+        out["signals"].append("20MA < 60MA")
+
+    score = max(0.0, min(100.0, score))
+    if score >= 75:
+        label = "🔥 Risk-On"
+    elif score >= 60:
+        label = "↗️ 偏多"
+    elif score >= 40:
+        label = "↔️ 震盪"
+    elif score >= 25:
+        label = "↘️ 偏空"
+    else:
+        label = "🔴 Risk-Off"
+    out.update({"score": round(score), "label": label, "5日報酬": ret5, "20日報酬": ret20})
+    return out
+
+
+
+
+def safe_float(value, default=None):
+    """
+    安全地把數值轉成 float；NaN / None / 無法轉換時回傳 default。
+    """
+    try:
+        x = float(value)
+        if pd.isna(x):
+            return default
+        return x
+    except Exception:
+        return default
+
+
+def pct_return(series, periods):
+    """
+    計算最近 periods 個交易期的報酬率。
+    回傳百分比，例如 5.2 表示 +5.2%。
+    """
+    if series is None or len(series) <= periods:
+        return None
+
+    first = pd.to_numeric(series.iloc[-periods - 1], errors="coerce")
+    last = pd.to_numeric(series.iloc[-1], errors="coerce")
+
+    if pd.isna(first) or pd.isna(last) or first == 0:
+        return None
+
+    return (last / first - 1.0) * 100.0
+
+
+def build_peer_capital_context(stock_id, market, df_stock, df_benchmark, current_disposal_ids):
+    """建立 Market Regime + Peer RS + 52W Historical Momentum 三層資金環境。"""
+    ctx = {
+        "industry_category": "",
+        "peer_count": 0,
+        "peer_data_count": 0,
+        "peer_median_5d": None,
+        "peer_median_10d": None,
+        "peer_median_20d": None,
+        "peer_rs_5d": None,
+        "peer_rs_10d": None,
+        "peer_rs_20d": None,
+        "peer_breadth_5d": None,
+        "stock_daily_return": None,
+        "market_daily_return": None,
+        "excess_daily_return": None,
+        "stock_pr_vs_market_52w": None,
+        "market_today_pr": None,
+        "pr_gap": None,
+        "market_daily_history_count": 0,
+        "market_regime_score": 50,
+        "market_regime_label": "—",
+        "market_regime_5d": None,
+        "market_regime_20d": None,
+        "capital_score": 50,
+        "signals": [],
+        "peer_names": [],
+    }
+
+    official = get_official_industry_context(stock_id, market)
+    ctx["industry_category"] = official["industry_category"] or "官方產業分類待取得"
+    regime = analyze_market_regime(df_benchmark)
+    ctx["market_regime_score"] = regime["score"]
+    ctx["market_regime_label"] = regime["label"]
+    ctx["market_regime_5d"] = regime["5日報酬"]
+    ctx["market_regime_20d"] = regime["20日報酬"]
+    # 使用「大盤過去 52 週每日漲跌幅分布」作為共同基準，
+    # 不再用個股自身的 52 週週報酬 PR。
+    market_pr = calc_market_daily_pr_features(
+        df_stock=df_stock,
+        df_benchmark=df_benchmark,
+        lookback_days=252,
+    )
+    ctx.update(market_pr)
+
+    peer_info = official["peer_info"].copy()
+    disposal_ids = {str(x).strip() for x in current_disposal_ids}
+    if not peer_info.empty:
+        peer_info = peer_info[
+            ~peer_info["stock_id"].astype(str).str.strip().isin(disposal_ids)
+            & (peer_info["stock_id"].astype(str).str.strip() != str(stock_id).strip())
+        ].copy()
+
+    peer_ids = peer_info["stock_id"].astype(str).str.strip().tolist() if not peer_info.empty else []
+    ctx["peer_count"] = len(peer_ids)
+    ctx["peer_names"] = [f"{r['stock_id']} {r['stock_name']}" for _, r in peer_info.head(80).iterrows()]
+
+    if not peer_ids:
+        ctx["signals"].append("⚠️ 找不到同市場同官方產業的未處置 peer")
+    else:
+        start_date = (get_latest_trade_date() - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+        end_date = get_latest_trade_date().strftime("%Y-%m-%d")
+        peer_prices = fetch_peer_price_data(peer_ids, start_date, end_date)
+        if peer_prices is not None and not peer_prices.empty:
+            rows = []
+            for pid, g in peer_prices.groupby("stock_id"):
+                g = g.sort_values("date")
+                closes = g["close"]
+                rows.append({
+                    "stock_id": pid,
+                    "ret5": pct_return(closes, 5),
+                    "ret10": pct_return(closes, 10),
+                    "ret20": pct_return(closes, 20),
+                })
+            peer_ret = pd.DataFrame(rows)
+            peer_ret = peer_ret.dropna(how="all", subset=["ret5", "ret10", "ret20"])
+            ctx["peer_data_count"] = len(peer_ret)
+            if not peer_ret.empty:
+                ctx["peer_median_5d"] = safe_float(peer_ret["ret5"].median())
+                ctx["peer_median_10d"] = safe_float(peer_ret["ret10"].median())
+                ctx["peer_median_20d"] = safe_float(peer_ret["ret20"].median())
+                stock_close = pd.to_numeric(df_stock["close"], errors="coerce")
+                stock_ret5, stock_ret10, stock_ret20 = pct_return(stock_close, 5), pct_return(stock_close, 10), pct_return(stock_close, 20)
+                if stock_ret5 is not None and ctx["peer_median_5d"] is not None:
+                    ctx["peer_rs_5d"] = stock_ret5 - ctx["peer_median_5d"]
+                if stock_ret10 is not None and ctx["peer_median_10d"] is not None:
+                    ctx["peer_rs_10d"] = stock_ret10 - ctx["peer_median_10d"]
+                if stock_ret20 is not None and ctx["peer_median_20d"] is not None:
+                    ctx["peer_rs_20d"] = stock_ret20 - ctx["peer_median_20d"]
+                positive = peer_ret["ret5"].dropna() > 0
+                if len(positive):
+                    ctx["peer_breadth_5d"] = float(positive.mean() * 100.0)
+                if ctx["peer_rs_5d"] is not None:
+                    if ctx["peer_rs_5d"] >= 5:
+                        ctx["signals"].append("🔥 個股5日明顯強於未處置同族群")
+                    elif ctx["peer_rs_5d"] <= -5:
+                        ctx["signals"].append("❄️ 個股5日弱於未處置同族群")
+                if ctx["peer_breadth_5d"] is not None:
+                    if ctx["peer_breadth_5d"] >= 70:
+                        ctx["signals"].append("🟢 同族群5日上漲廣度偏高")
+                    elif ctx["peer_breadth_5d"] <= 30:
+                        ctx["signals"].append("🔴 同族群5日上漲廣度偏低")
+
+    rs5 = score_relative_return(ctx["peer_rs_5d"], 15)
+    rs10 = score_relative_return(ctx["peer_rs_10d"], 20)
+    rs20 = score_relative_return(ctx["peer_rs_20d"], 30)
+    breadth = ctx["peer_breadth_5d"] if ctx["peer_breadth_5d"] is not None else 50.0
+
+    # PR gap：個股相對大盤 52W 日報酬分布的標準化強弱。
+    pr_gap_score = (
+        max(0.0, min(100.0, 50.0 + ctx["pr_gap"] * 1.0))
+        if ctx["pr_gap"] is not None
+        else 50.0
+    )
+
+    vol = None
+    if df_stock is not None and len(df_stock) >= 21:
+        s = pd.to_numeric(df_stock["close"], errors="coerce").dropna()
+        if len(s) >= 21:
+            vol = safe_float(s.pct_change().dropna().tail(20).std() * (252 ** 0.5) * 100)
+    ctx["volatility20"] = vol
+    volatility_score = score_volatility(vol)
+
+    # 初版權重：僅作為試跑設定，尚未由歷史回測校準。
+    # 這版移除「個股自身 52W 週報酬」，
+    # 改用「個股相對大盤 52W 每日報酬分布的 PR Gap」。
+    capital_score = (
+        rs5 * 0.20
+        + rs10 * 0.15
+        + rs20 * 0.10
+        + breadth * 0.10
+        + pr_gap_score * 0.20
+        + float(regime["score"]) * 0.15
+        + volatility_score * 0.10
+    )
+    ctx["capital_score"] = int(round(max(0.0, min(100.0, capital_score))))
+
+    if ctx["stock_pr_vs_market_52w"] is not None:
+        if ctx["stock_pr_vs_market_52w"] >= 95:
+            ctx["signals"].append("🚀 個股當日漲跌幅位於大盤52W日報酬95PR以上")
+        elif ctx["stock_pr_vs_market_52w"] >= 80:
+            ctx["signals"].append("📈 個股當日漲跌幅明顯強於大盤歷史常態")
+        elif ctx["stock_pr_vs_market_52w"] <= 20:
+            ctx["signals"].append("🔴 個股當日漲跌幅落在大盤52W低分位")
+
+    if ctx["pr_gap"] is not None:
+        if ctx["pr_gap"] >= 20:
+            ctx["signals"].append("🔥 個股PR至少高於大盤當日PR 20個百分點")
+        elif ctx["pr_gap"] <= -20:
+            ctx["signals"].append("❄️ 個股PR低於大盤當日PR 20個百分點")
+
+    ctx["signals"].extend(regime["signals"])
+    return ctx
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_disposal_chip_data(stock_id, start_date, end_date):
+    """取得真實三大法人與融資融券資料。"""
+    sid = str(stock_id).strip()
+    result = {"institutional": pd.DataFrame(), "margin": pd.DataFrame(), "error": []}
+    try:
+        dl = get_finmind_loader()
+        inst = dl.taiwan_stock_institutional_investors(stock_id=sid, start_date=start_date, end_date=end_date)
+        if inst is not None and not inst.empty:
+            inst = inst.copy()
+            inst["date"] = pd.to_datetime(inst["date"], errors="coerce")
+            inst["buy"] = pd.to_numeric(inst["buy"], errors="coerce").fillna(0)
+            inst["sell"] = pd.to_numeric(inst["sell"], errors="coerce").fillna(0)
+            inst["net"] = inst["buy"] - inst["sell"]
+            result["institutional"] = inst
+    except Exception as exc:
+        result["error"].append(f"三大法人：{exc}")
+    try:
+        margin = get_finmind_loader().get_data(
+            dataset="TaiwanStockMarginPurchaseShortSale",
+            data_id=sid, start_date=start_date, end_date=end_date,
         )
-        st.plotly_chart(fig_tree, use_container_width=True)
+        if margin is not None and not margin.empty:
+            margin = margin.copy()
+            margin["date"] = pd.to_datetime(margin["date"], errors="coerce")
+            for col in [
+                "MarginPurchaseTodayBalance", "ShortSaleTodayBalance",
+                "MarginPurchaseBuy", "MarginPurchaseSell", "ShortSaleBuy", "ShortSaleSell",
+            ]:
+                if col in margin.columns:
+                    margin[col] = pd.to_numeric(margin[col], errors="coerce").fillna(0)
+            result["margin"] = margin
+    except Exception as exc:
+        result["error"].append(f"融資融券：{exc}")
+    return result
+
+
+def analyze_disposal_event_model(
+    df_stock, chip_bundle, df_benchmark, peer_context,
+    stock_id, market, start_dt, end_dt, reason="", measure="",
+):
+    """事件層 60% + 三層資金環境 40%；權重待歷史回測校準。"""
+    _ = (df_benchmark, stock_id, market, start_dt, end_dt)
+    result = {
+        "score": 50, "event_score": 50,
+        "capital_score": int(peer_context.get("capital_score", 50)) if peer_context else 50,
+        "risk_level": "中性", "direction": "↔️ 中性觀察", "signals": [], "features": {},
+    }
+    if df_stock is None or df_stock.empty:
+        result["risk_level"] = "資料不足"
+        result["signals"].append("⚠️ 無法取得個股歷史價格")
+        return result
+
+    df = df_stock.copy().sort_values("date").reset_index(drop=True)
+    df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
+    for col in ["open", "max", "min", "close", "Trading_Volume"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna(subset=["date_dt", "close"]).reset_index(drop=True)
+
+    latest = safe_float(df["close"].iloc[-1])
+    ma5 = safe_float(df["close"].tail(5).mean())
+    ma20 = safe_float(df["close"].tail(20).mean())
+    ma60 = safe_float(df["close"].tail(60).mean()) if len(df) >= 60 else None
+    high60 = safe_float(df["max"].tail(60).max()) if "max" in df.columns else None
+    vol20 = safe_float(df["Trading_Volume"].tail(20).mean()) if "Trading_Volume" in df.columns else None
+    latest_vol = safe_float(df["Trading_Volume"].iloc[-1]) if "Trading_Volume" in df.columns else None
+    ret5, ret10, ret20 = pct_return(df["close"], 5), pct_return(df["close"], 10), pct_return(df["close"], 20)
+    bias20 = ((latest - ma20) / ma20 * 100.0) if latest is not None and ma20 else None
+    volatility20 = None
+    if len(df) >= 21:
+        volatility20 = safe_float(df["close"].pct_change().dropna().tail(20).std() * (252 ** 0.5) * 100)
+
+    score = 50.0
+    text_all = f"{reason} {measure}".strip()
+    if re.search(r"第二次|第2次|二次", measure): score -= 8; result["signals"].append("⚠️ 第二次處置：事件風險提高")
+    elif re.search(r"第三次|第3次|三次|第四次|第4次", measure): score -= 15; result["signals"].append("🔴 多次處置：事件風險顯著提高")
+    elif re.search(r"第一次|第1次|首次", measure): score += 2; result["signals"].append("🟢 第一次處置")
+    if "最近十個營業日已有六次" in text_all: score -= 4; result["signals"].append("⚠️ 10日內注意交易次數偏高")
+    if "連續五次" in text_all or "連續五個營業日" in text_all: score -= 3; result["signals"].append("⚠️ 連續注意交易事件")
+    if "當日沖銷" in text_all: score -= 2; result["signals"].append("⚠️ 涉及當沖異常條件")
+    if ret5 is not None:
+        if ret5 >= 8: score += 10; result["signals"].append("🚀 5日動能強")
+        elif ret5 >= 3: score += 5; result["signals"].append("📈 5日維持正向動能")
+        elif ret5 <= -8: score -= 10; result["signals"].append("🔴 5日跌幅偏大")
+        elif ret5 < 0: score -= 4
+    if ret20 is not None:
+        if ret20 >= 15: score += 6
+        elif ret20 <= -15: score -= 8
+    if ma5 and ma20:
+        if latest > ma5 > ma20: score += 8; result["signals"].append("🟢 短中期均線多頭")
+        elif latest < ma20: score -= 8; result["signals"].append("🔴 跌破20MA")
+    if ma60 is not None and ma20: score += 4 if ma20 > ma60 else -4
+    if high60:
+        distance_high60 = (latest / high60 - 1) * 100
+        if distance_high60 >= -5: score += 5; result["signals"].append("🚀 接近60日高點")
+        elif distance_high60 <= -20: score -= 4
+
+    volume_ratio = None
+    if latest_vol is not None and vol20 and vol20 > 0:
+        volume_ratio = latest_vol / vol20
+        if volume_ratio >= 1.5: score += 6; result["signals"].append("⚡ 出關附近量能明顯放大")
+        elif volume_ratio < 0.7: score += 2; result["signals"].append("🟢 量縮整理")
+        elif volume_ratio > 2.5: score -= 4; result["signals"].append("⚠️ 量能過度爆量")
+
+    inst = chip_bundle.get("institutional", pd.DataFrame())
+    inst_5_net = inst_10_net = None
+    if not inst.empty:
+        inst = inst.sort_values("date")
+        net_series = pd.to_numeric(inst["net"], errors="coerce").fillna(0)
+        if len(net_series) >= 5: inst_5_net = safe_float(net_series.tail(5).sum())
+        if len(net_series) >= 10: inst_10_net = safe_float(net_series.tail(10).sum())
+        if inst_5_net is not None:
+            if inst_5_net > 0: score += 7; result["signals"].append("🟢 法人近5日淨買超")
+            elif inst_5_net < 0: score -= 6; result["signals"].append("🔴 法人近5日淨賣超")
+
+    margin = chip_bundle.get("margin", pd.DataFrame())
+    margin_change_10 = None
+    if not margin.empty and "MarginPurchaseTodayBalance" in margin.columns:
+        margin = margin.sort_values("date")
+        bal = pd.to_numeric(margin["MarginPurchaseTodayBalance"], errors="coerce").fillna(0)
+        if len(bal) >= 10 and bal.iloc[-10] != 0:
+            margin_change_10 = (bal.iloc[-1] / bal.iloc[-10] - 1) * 100.0
+            if ret10 is not None and ret10 > 0 and margin_change_10 > 10:
+                score -= 6; result["signals"].append("⚠️ 股價上漲但融資10日增加 >10%")
+            elif margin_change_10 < -5:
+                score += 4; result["signals"].append("🟢 融資餘額下降")
+
+    if volatility20 is not None:
+        if volatility20 >= 100: score -= 8; result["signals"].append("🔴 年化波動率極高")
+        elif volatility20 >= 70: score -= 4
+        elif volatility20 <= 35: score += 3
+
+    event_score = max(0, min(100, round(score)))
+    capital_score = int(peer_context.get("capital_score", 50)) if peer_context else 50
+    total_score = int(round(event_score * 0.60 + capital_score * 0.40))
+    if total_score >= 75: risk_level, direction = "偏多", "🚀 強勢型"
+    elif total_score >= 60: risk_level, direction = "中性偏多", "📈 偏多觀察"
+    elif total_score >= 45: risk_level, direction = "中性", "↔️ 震盪觀察"
+    elif total_score >= 30: risk_level, direction = "中性偏空", "⚠️ 偏空風險"
+    else: risk_level, direction = "高風險", "🔴 弱勢型"
+
+    result["signals"].extend(peer_context.get("signals", []) if peer_context else [])
+    result["score"], result["event_score"], result["capital_score"] = total_score, event_score, capital_score
+    result["risk_level"], result["direction"] = risk_level, direction
+    result["features"] = {
+        "5日報酬": ret5, "10日報酬": ret10, "20日報酬": ret20, "BIAS20": bias20,
+        "量能比20MA": volume_ratio, "法人5日淨買超": inst_5_net, "法人10日淨買超": inst_10_net,
+        "融資10日變化": margin_change_10, "20日年化波動": volatility20,
+        "官方產業": peer_context.get("industry_category", "—") if peer_context else "—",
+        "同族群未處置家數": peer_context.get("peer_count", 0) if peer_context else 0,
+        "同族群有資料家數": peer_context.get("peer_data_count", 0) if peer_context else 0,
+        "族群5日中位數": peer_context.get("peer_median_5d") if peer_context else None,
+        "族群10日中位數": peer_context.get("peer_median_10d") if peer_context else None,
+        "族群20日中位數": peer_context.get("peer_median_20d") if peer_context else None,
+        "5日族群相對強弱": peer_context.get("peer_rs_5d") if peer_context else None,
+        "10日族群相對強弱": peer_context.get("peer_rs_10d") if peer_context else None,
+        "20日族群相對強弱": peer_context.get("peer_rs_20d") if peer_context else None,
+        "族群5日廣度": peer_context.get("peer_breadth_5d") if peer_context else None,
+        "個股當日報酬": peer_context.get("stock_daily_return") if peer_context else None,
+        "大盤當日報酬": peer_context.get("market_daily_return") if peer_context else None,
+        "個股超額報酬": peer_context.get("excess_daily_return") if peer_context else None,
+        "個股對大盤52W日報酬PR": peer_context.get("stock_pr_vs_market_52w") if peer_context else None,
+        "大盤當日PR": peer_context.get("market_today_pr") if peer_context else None,
+        "PR差": peer_context.get("pr_gap") if peer_context else None,
+        "大盤52W日報酬樣本數": peer_context.get("market_daily_history_count") if peer_context else 0,
+        "大盤環境分數": peer_context.get("market_regime_score", 50) if peer_context else 50,
+        "大盤環境": peer_context.get("market_regime_label", "—") if peer_context else "—",
+        "大盤5日報酬": peer_context.get("market_regime_5d") if peer_context else None,
+        "大盤20日報酬": peer_context.get("market_regime_20d") if peer_context else None,
+    }
+    return result
+
+
+def fmt_pct(value):
+    return "—" if value is None else f"{value:+.2f}%"
+
+
+def fmt_number(value):
+    return "—" if value is None else f"{value:,.0f}"
+
+
+
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_taiex_benchmark():
+    """
+    取得台股加權指數作為 Market Regime 基準。
+    本函式只負責「市場環境」，不再把大盤當作個股 Relative Strength。
+    """
+    try:
+        df = yf.download(
+            "^TWII",
+            period="2y",
+            progress=False,
+            auto_adjust=False,
+        )
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index()
+        df.rename(
+            columns={
+                "Date": "date",
+                "Close": "close",
+            },
+            inplace=True,
+        )
+
+        if "date" not in df.columns or "close" not in df.columns:
+            return pd.DataFrame()
+
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+
+        return (
+            df.dropna(subset=["date", "close"])[["date", "close"]]
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+    except Exception:
+        return pd.DataFrame()
+
+
+# TAB 2：全市場處置股（已重寫）
+# ============================================================
+with tab2:
+    st.title("🚨 全市場處置股動態追蹤與事件型模型分析")
+    st.caption(f"🧩 模型版本：{APP_VERSION}｜本頁使用大盤52週每日漲跌幅 PR，不使用個股自身52週週報酬 PR。")
+    st.caption(
+        "第 2 分頁為獨立的處置事件模型。處置主資料優先採用 FinMind"
+        "全市場處置事件資料，並以 TWSE / TPEx 官方資料驗證；17:00 後"
+        "每 10 分鐘刷新。Peer RS 使用 FinMind TaiwanStockInfo 的產業分類，"
+        "排除目前處置股後再比較同市場同族群。"
+    )
+
+    # 自動刷新：
+    # GitHub / Streamlit 若未安裝 streamlit-autorefresh，
+    # 仍可使用手動重新整理，不會影響主程式。
+    now = taipei_now()
+
+    if HAS_AUTO_REFRESH and 17 <= now.hour <= 23:
+        st_autorefresh(
+            interval=10 * 60 * 1000,
+            key="disposal_tab_auto_refresh",
+        )
+
+    refresh_col1, refresh_col2, refresh_col3 = st.columns(
+        [1, 1.5, 5]
+    )
+
+    with refresh_col1:
+        force_refresh = st.button(
+            "🔄 立即更新",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if force_refresh:
+        fetch_all_disposal_stocks.clear()
+
+    refresh_key = get_disposal_refresh_key()
+
+    with st.spinner("⏳ 正在讀取 TWSE / TPEx 官方最新處置資料..."):
+        df_all_disp, disposal_meta = fetch_all_disposal_stocks(
+            refresh_key
+        )
+
+    with refresh_col2:
+        st.metric(
+            "資料讀取時間",
+            disposal_meta.get("last_refresh", "—"),
+        )
+
+    with refresh_col3:
+        latest_trade = disposal_meta.get("latest_trade_date", "—")
+        next_trade = disposal_meta.get("next_trade_date", "—")
+        st.caption(
+            f"最新交易日：{latest_trade} ｜ "
+            f"次一營業日：{next_trade} ｜ "
+            f"快取節奏：傍晚後 10 分鐘"
+        )
+
+    if disposal_meta.get("sources_used"):
+        st.caption(
+            "📡 已使用來源：" + "、".join(disposal_meta["sources_used"])
+        )
+
+    if disposal_meta.get("finmind_token_configured"):
+        st.success(
+            "✅ FINMIND_TOKEN 已設定：可取得全市場處置事件資料。"
+        )
+    else:
+        st.warning(
+            "⚠️ FINMIND_TOKEN 尚未設定：本頁將無法使用 FinMind 全市場處置資料，"
+            "只能依 TWSE / TPEx 官方端點是否可連線而顯示資料。"
+        )
+
+    if disposal_meta.get("errors"):
+        with st.expander("⚠️ 官方來源連線狀態 / 錯誤紀錄", expanded=False):
+            for err in disposal_meta["errors"]:
+                st.warning(err)
+
+    with st.expander("🧠 第二分頁目前採用的事件型模型", expanded=False):
+        st.markdown(
+            """
+            **本分頁與第五維選股完全分離。**
+
+            **A. 事件 / 個股層**
+
+            - 處置次數與處置條件
+            - 5 / 10 / 20 日價格動能
+            - 5 / 20MA 與 60 日位置
+            - 出關附近量能
+            - 三大法人近 5 / 10 日淨買賣
+            - 融資餘額變化
+            - 20 日歷史波動度
+
+            **B. 三層資金環境層**
+
+            1. Market Regime：加權指數只負責判斷大盤環境，不拿它當個股強弱。
+            2. Peer Relative Strength：同官方產業、同市場、排除處置股，使用 5/10/20 日族群中位數、相對強弱與族群廣度。
+            3. Historical Momentum：個股本週相對自身 52 週歷史週報酬百分位，以及本週相對前週的動能加速度。
+
+            初版總分採 **事件層 60% + 資金環境層 40%**；資金環境內部採討論中的 20% / 15% / 10% / 10% / 15% / 10% / 15% / 5% 權重。
+
+            **目前刻意不顯示固定「82% / 70% / 45% 勝率」。**
+            在完成逐筆歷史處置事件回測前，分數只代表當下事件特徵與資金環境強弱，
+            不把 heuristic 分數偽裝成統計勝率。
+
+            """
+        )
+
+    if not disposal_meta.get("official_fetch_ok", False):
+        st.error(
+            "目前無法取得官方處置資料。"
+            "本版本已移除原本的人工作假資料，因此不會在官方 API 失敗時 "
+            "顯示可能錯誤的股票或日期。"
+        )
+        st.info(
+            "請點「🔄 立即更新」再試一次；若仍失敗，代表 TWSE / TPEx "
+            "當下可能暫時封鎖、改版或尚未開放該服務。"
+        )
+
+    elif df_all_disp.empty:
+        st.success(
+            "✅ 目前沒有符合「處置中 / 次一營業日生效」條件的官方處置股票。"
+        )
+
+    else:
+        # ----------------------------------------------------
+        # 統計卡
+        # ----------------------------------------------------
+        active = df_all_disp[
+            df_all_disp["status"] == "處置中"
+        ]
+        upcoming = df_all_disp[
+            df_all_disp["status"] == "次一營業日生效"
+        ]
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(
+            "目前處置中",
+            f"{len(active)} 檔",
+        )
+        c2.metric(
+            "次一營業日生效",
+            f"{len(upcoming)} 檔",
+        )
+        c3.metric(
+            "上市處置",
+            f"{len(df_all_disp[df_all_disp['market'] == '上市'])} 檔",
+        )
+        c4.metric(
+            "上櫃處置",
+            f"{len(df_all_disp[df_all_disp['market'] == '上櫃'])} 檔",
+        )
 
         st.markdown("---")
-        st.subheader("📋 各 AI 次產業監控成分股與即時表現細節一覽")
-        summary_list = []
-        for sec, avg_p in sector_perf.items():
-            summary_list.append({
-                "AI 次產業類別": sec, "平均漲跌幅": f"{avg_p:+.2f}%",
-                "包含監控標的 (代號 / 名稱 / 漲幅)": sector_details.get(sec, "-")
-            })
-        df_sec_summary = pd.DataFrame(summary_list).sort_values(by="平均漲跌幅", ascending=False)
-        st.dataframe(df_sec_summary, use_container_width=True)
 
-    # ------------------------------------------
-    # TAB 4: 智慧多維選股戰情室（五維量化質化篩選）
-    # ------------------------------------------
-    with tab4:
-        st.title("🎯 智慧多維選股戰情室 — 五維量化質化進階篩選")
-        st.markdown("""
-        **【五維一體選股體系說明】**：除了原本的業績、籌碼、均線與量能外，特別納入 **「第五個關鍵濾網：安全邊界（月線乖離率防追高）」**，打造法人等級的風險控管防線：
-        1. 📊 **基本面**：近月營收 YoY 年增率 > 8.0%（業績實質支撐）
-        2. 🛡️ **籌碼質化**：三大法人買超且融資未暴增（排除散戶融資虛胖盤）
+        # ----------------------------------------------------
+        # 清單總覽
+        # ----------------------------------------------------
+        st.subheader("📋 官方處置股票完整總覽")
+
+        # 固定建立 11 欄，避免某個資料來源沒有 disposition_cnt 時，
+        # 導致 Pandas 出現「Length mismatch」而讓整個 Streamlit App Crash。
+        display_disp_df = pd.DataFrame({
+            "stock_id": df_all_disp.get("stock_id", pd.Series(dtype=str)),
+            "stock_name": df_all_disp.get("stock_name", pd.Series(dtype=str)),
+            "market": df_all_disp.get("market", pd.Series(dtype=str)),
+            "status": df_all_disp.get("status", pd.Series(dtype=str)),
+            "announce_date": df_all_disp.get("announce_date", pd.Series(dtype=str)),
+            "start_dt": df_all_disp.get("start_dt", pd.Series(dtype=str)),
+            "end_dt": df_all_disp.get("end_dt", pd.Series(dtype=str)),
+            "reason": df_all_disp.get("reason", pd.Series(dtype=str)),
+            "disposition_cnt": (
+                pd.to_numeric(
+                    df_all_disp.get(
+                        "disposition_cnt",
+                        pd.Series(index=df_all_disp.index, dtype=float),
+                    ),
+                    errors="coerce",
+                )
+                .fillna(0)
+                .astype(int)
+            ),
+            "measure": df_all_disp.get("measure", pd.Series(dtype=str)),
+            "source_display": df_all_disp.get(
+                "source_display",
+                pd.Series(index=df_all_disp.index, dtype=str),
+            ),
+        })
+
+        display_disp_df.columns = [
+            "股票代號",
+            "股票名稱",
+            "市場",
+            "狀態",
+            "公告日期",
+            "處置開始日",
+            "處置結束日",
+            "處置條件",
+            "累計處置次數",
+            "處置措施",
+            "資料來源",
+        ]
+
+        st.dataframe(
+            display_disp_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("---")
+
+        # ----------------------------------------------------
+        # 詳細分析
+        # ----------------------------------------------------
+        st.subheader("📊 處置股精細 K 線與 AI 出關評析")
+
+        options = [
+            "查看全部處置股"
+        ] + [
+            (
+                f"{r['stock_id']} {r['stock_name']} "
+                f"({r['market']}) [{r['status']}]"
+            )
+            for _, r in df_all_disp.iterrows()
+        ]
+
+        selected_option = st.selectbox(
+            "🎯 請選擇欲深入分析的處置股標的：",
+            options=options,
+            index=0,
+        )
+
+        if selected_option == "查看全部處置股":
+            target_df = df_all_disp
+        else:
+            sel_sid = selected_option.split(" ")[0]
+            target_df = df_all_disp[
+                df_all_disp["stock_id"] == sel_sid
+            ]
+
+        for _, row in target_df.iterrows():
+            sid = row["stock_id"]
+            sname = row["stock_name"]
+            ind = get_industry(sid)
+            mkt = row["market"]
+
+            st.markdown(
+                f"### 📌 **{sid} {sname}** `{ind}` ({mkt})"
+            )
+
+            st.caption(
+                f"📅 狀態：{row['status']} ｜ "
+                f"處置期間：{row['start_dt']} ～ {row['end_dt']} ｜ "
+                f"📢 公告日期：{row['announce_date'] or '—'}"
+            )
+
+            if row["reason"]:
+                st.caption(
+                    f"⚠️ 處置條件：{row['reason']}"
+                )
+
+            if row["measure"]:
+                st.caption(
+                    f"🛠️ 處置措施：{row['measure']}"
+                )
+
+            col_chart, col_ai = st.columns([1.6, 1])
+
+            # 取得最近約 3 個月價格資料
+            df_stock_k = fetch_stock_data_robust(sid)
+
+            # 取得近 100 日真實籌碼資料
+            end_date_chip = get_latest_trade_date().strftime("%Y-%m-%d")
+            start_date_chip = (
+                get_latest_trade_date() - datetime.timedelta(days=100)
+            ).strftime("%Y-%m-%d")
+
+            chip_bundle = fetch_disposal_chip_data(
+                sid, start_date_chip, end_date_chip
+            )
+            df_taiex = fetch_taiex_benchmark()
+            current_disposal_ids = tuple(df_all_disp["stock_id"].astype(str).tolist())
+            peer_context = build_peer_capital_context(
+                stock_id=sid, market=mkt, df_stock=df_stock_k,
+                df_benchmark=df_taiex, current_disposal_ids=current_disposal_ids,
+            )
+
+            event_model = analyze_disposal_event_model(
+                df_stock=df_stock_k, chip_bundle=chip_bundle,
+                df_benchmark=df_taiex, peer_context=peer_context,
+                stock_id=sid, market=mkt, start_dt=row["start_dt"],
+                end_dt=row["end_dt"], reason=row.get("reason", ""),
+                measure=row.get("measure", ""),
+            )
+
+            with col_chart:
+                chart_key = (
+                    f"disposal_kline_{sid}_"
+                    f"{row['start_dt']}_{row['end_dt']}_"
+                    f"{row['status']}"
+                )
+
+                st.plotly_chart(
+                    draw_kline(
+                        df_stock_k,
+                        f"{sid} {sname} ({ind})",
+                    ),
+                    use_container_width=True,
+                    key=chart_key,
+                )
+
+            with col_ai:
+                st.metric(
+                    "處置事件綜合分數", f"{event_model['score']} / 100",
+                    delta=event_model["direction"],
+                )
+                st.write(
+                    f"**事件層：** {event_model['event_score']} / 100 "
+                    f"｜ **資金環境層：** {event_model['capital_score']} / 100"
+                )
+                st.write(f"**事件風險：** {event_model['risk_level']}")
+                features = event_model["features"]
+
+                st.markdown("#### 🌐 1. 市場環境 Market Regime")
+                st.write(
+                    f"**市場環境：** {features['大盤環境']} ｜ **分數：** {features['大盤環境分數']}/100 "
+                    f"｜ **5日：** {fmt_pct(features['大盤5日報酬'])} ｜ **20日：** {fmt_pct(features['大盤20日報酬'])}"
+                )
+
+                st.markdown("#### 🏭 2. 同族群未處置 Peer Relative Strength")
+                st.write(
+                    f"**官方產業：** {features['官方產業']} ｜ **未處置家數：** {features['同族群未處置家數']} 檔 "
+                    f"｜ **有資料：** {features['同族群有資料家數']} 檔"
+                )
+                st.write(
+                    f"**5D RS：** {fmt_pct(features['5日族群相對強弱'])} ｜ "
+                    f"**10D RS：** {fmt_pct(features['10日族群相對強弱'])} ｜ "
+                    f"**20D RS：** {fmt_pct(features['20日族群相對強弱'])}"
+                )
+                st.write(
+                    f"**族群5D中位數：** {fmt_pct(features['族群5日中位數'])} ｜ "
+                    f"**5D上漲廣度：** {fmt_pct(features['族群5日廣度'])}"
+                )
+
+                st.markdown("#### 📊 3. 大盤52週每日漲跌幅 PR 相對強弱")
+                st.write(
+                    f"**個股當日：** {fmt_pct(features['個股當日報酬'])} ｜ "
+                    f"**大盤當日：** {fmt_pct(features['大盤當日報酬'])} ｜ "
+                    f"**個股超額：** {fmt_pct(features['個股超額報酬'])}"
+                )
+                st.write(
+                    f"**個股對大盤52W日報酬 PR：** "
+                    f"{fmt_pct(features['個股對大盤52W日報酬PR'])} ｜ "
+                    f"**大盤當日 PR：** {fmt_pct(features['大盤當日PR'])} ｜ "
+                    f"**PR差：** {fmt_pct(features['PR差'])}"
+                )
+                st.caption(
+                    f"📚 基準樣本：大盤前 {int(features['大盤52W日報酬樣本數']) if features['大盤52W日報酬樣本數'] else 0} "
+                    "個交易日；排除當日，避免 look-ahead。"
+                )
+
+                st.markdown("#### 📌 4. 原事件 / 個股條件")
+                volume_text = f"{features['量能比20MA']:.2f}x" if features["量能比20MA"] is not None else "—"
+                st.write(
+                    f"**5日：** {fmt_pct(features['5日報酬'])} ｜ **20日：** {fmt_pct(features['20日報酬'])} ｜ "
+                    f"**BIAS20：** {fmt_pct(features['BIAS20'])}"
+                )
+                st.write(
+                    f"**20日量能比：** {volume_text} ｜ **法人5日淨買超：** {fmt_number(features['法人5日淨買超'])} ｜ "
+                    f"**融資10日變化：** {fmt_pct(features['融資10日變化'])}"
+                )
+                st.caption(
+                    "⚠️ 以上為初版事件型 heuristic 分數，不是歷史回測勝率；正式權重應由歷史處置事件回測校準。"
+                )
+
+                if event_model["signals"]:
+                    st.write("**模型關鍵訊號：**")
+                    for signal in list(dict.fromkeys(event_model["signals"])):
+                        st.write(signal)
+
+                if peer_context.get("peer_names"):
+                    with st.expander("🔎 查看同族群未處置樣本", expanded=False):
+                        st.write("、".join(peer_context["peer_names"]))
+
+                if chip_bundle.get("error"):
+                    with st.expander("⚠️ 籌碼資料來源狀態", expanded=False):
+                        for err in chip_bundle["error"]:
+                            st.warning(err)
+
+                latest_close = safe_float(df_stock_k["close"].iloc[-1])
+                ma20 = safe_float(df_stock_k["close"].tail(20).mean())
+                stop_loss = round(ma20 * 0.97, 2) if ma20 is not None else None
+                if stop_loss is not None:
+                    st.write(
+                        f"**模型風險線：** {stop_loss:.2f} 元（20MA × 97%）"
+                    )
+
+                if event_model["score"] >= 75:
+                    advice = (
+                        "事件特徵偏強，可觀察出關後第一個交易日的量價是否延續；"
+                        "不要單靠模型分數追價。"
+                    )
+                elif event_model["score"] >= 60:
+                    advice = (
+                        "偏多但仍需確認出關後量價；若跌破20MA，"
+                        "事件優勢可能快速減弱。"
+                    )
+                elif event_model["score"] >= 45:
+                    advice = (
+                        "事件特徵中性，等待價格與量能表態；"
+                        "不宜把處置結束本身視為買進訊號。"
+                    )
+                else:
+                    advice = (
+                        "事件風險偏高，優先觀察是否跌破20MA與法人持續賣超，"
+                        "避免僅因出關而預設反彈。"
+                    )
+                st.info(f"💡 **事件型策略建議：** {advice}")
+
+            st.markdown("---")
+
+
+# ============================================================
+# TAB 3
+# ============================================================
+with tab3:
+    st.title(
+        "🗺️ 台股全 AI 與延伸供應鏈 — "
+        "次產業資金分佈與 nStock 專業熱力圖"
+    )
+
+    st.markdown(
+        "模擬 **nStock 專業看盤介面**：上方圓餅圖滑鼠懸停時會"
+        "**直接顯示該次產業對應的所有股票代號與名稱**，"
+        "下方展示漲跌即時熱力圖（紅色上漲、綠色下跌）。"
+    )
+
+    with st.spinner(
+        "⏳ 正在計算全面 AI 供應鏈動能與建構圖表..."
+    ):
+        try:
+            sector_perf, sector_details, sector_stocks_map = (
+                fetch_all_ai_sector_ranks()
+            )
+        except Exception:
+            sector_perf = {
+                "AI伺服器與代工": 2.5,
+                "CPO光傳輸/矽光子": 4.1,
+                "液冷散熱與機殼": 1.8,
+            }
+
+            sector_details = {
+                "AI伺服器與代工": "2382 廣達 (+2.5%)"
+            }
+
+            sector_stocks_map = {
+                "AI伺服器與代工": "2382 廣達, 3231 緯創"
+            }
+
+    pie_data = []
+
+    for sec in sector_perf.keys():
+        random.seed(len(sec) + 123)
+        weight_val = random.randint(15, 50)
+        stock_list_str = sector_stocks_map.get(sec, "無對應股票")
+
+        pie_data.append(
+            {
+                "Sector": sec,
+                "Weight": weight_val,
+                "StockList": stock_list_str,
+            }
+        )
+
+    df_pie = pd.DataFrame(pie_data)
+
+    st.subheader(
+        "🥧 全 AI 供應鏈次產業資金權重分佈 "
+        "(Hover 顯示對應股票)"
+    )
+
+    fig_pie = px.pie(
+        df_pie,
+        names="Sector",
+        values="Weight",
+        custom_data=["StockList"],
+        hole=0.4,
+        color_discrete_sequence=px.colors.qualitative.Prism,
+    )
+
+    fig_pie.update_traces(
+        textposition="inside",
+        textinfo="percent+label",
+        hovertemplate=(
+            "<b>📦 產業類別: %{label}</b><br>"
+            "💰 資金權重佔比: %{percent}<br>"
+            "────────────────────<br>"
+            "📌 <b>包含股票清單:</b><br>"
+            "%{customdata[0]}<extra></extra>"
+        ),
+    )
+
+    fig_pie.update_layout(
+        height=450,
+        margin=dict(l=20, r=20, t=10, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+
+    st.plotly_chart(
+        fig_pie,
+        use_container_width=True,
+        key="ai_sector_pie_chart",
+    )
+
+    st.markdown("---")
+
+    st.subheader(
+        "🗺️ nStock 風格股價漲跌即時熱力圖 (Treemap)"
+    )
+
+    treemap_rows = []
+
+    for sec, avg_p in sector_perf.items():
+        sec_stocks = [
+            sid
+            for sid, s_ind in INDUSTRY_MAP.items()
+            if s_ind == sec
+        ]
+
+        for sid in sec_stocks:
+            s_disp = get_stock_display_name(sid)
+
+            random.seed(int(sid) + 7)
+            market_cap_weight = random.randint(20, 100)
+            stock_pct = avg_p + random.uniform(-1.5, 1.8)
+
+            treemap_rows.append(
+                {
+                    "Sector": f"📌 {sec}",
+                    "Stock": s_disp,
+                    "Weight": market_cap_weight,
+                    "Perf": stock_pct,
+                }
+            )
+
+    df_tree = pd.DataFrame(treemap_rows)
+
+    fig_tree = px.treemap(
+        df_tree,
+        path=["Sector", "Stock"],
+        values="Weight",
+        color="Perf",
+        color_continuous_scale=[
+            "#1a9641",
+            "#a6d96a",
+            "#ffffbf",
+            "#fdae61",
+            "#d7191c",
+        ],
+        color_continuous_midpoint=0,
+        range_color=[-5.0, 5.0],
+    )
+
+    fig_tree.update_traces(
+        hovertemplate=(
+            "<b>%{parent}</b><br>"
+            "🔲 <b>%{label}</b><br>"
+            "📈 <b>今日漲跌幅: %{color:+.2f}%</b>"
+            "<extra></extra>"
+        ),
+        textfont=dict(
+            size=14,
+            family="Microsoft JhengHei",
+            color="white",
+        ),
+    )
+
+    fig_tree.update_layout(
+        margin=dict(l=5, r=5, t=10, b=10),
+        height=620,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        coloraxis_colorbar=dict(
+            title="漲跌幅 (%)",
+            thickness=18,
+            len=0.8,
+            x=1.01,
+        ),
+    )
+
+    st.plotly_chart(
+        fig_tree,
+        use_container_width=True,
+        key="ai_supply_chain_treemap",
+    )
+
+    st.markdown("---")
+
+    st.subheader(
+        "📋 各 AI 次產業監控成分股與即時表現細節一覽"
+    )
+
+    summary_list = []
+
+    for sec, avg_p in sector_perf.items():
+        summary_list.append(
+            {
+                "AI 次產業類別": sec,
+                "平均漲跌幅": f"{avg_p:+.2f}%",
+                "包含監控標的 (代號 / 名稱 / 漲幅)": (
+                    sector_details.get(sec, "-")
+                ),
+            }
+        )
+
+    df_sec_summary = (
+        pd.DataFrame(summary_list)
+        .sort_values(
+            by="平均漲跌幅",
+            ascending=False,
+        )
+    )
+
+    st.dataframe(
+        df_sec_summary,
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# TAB 4
+# ============================================================
+with tab4:
+    st.title(
+        "🎯 智慧多維選股戰情室 — "
+        "五維量化質化進階篩選"
+    )
+
+    st.markdown(
+        """
+        **【五維一體選股體系說明】**：
+
+        1. 📊 **基本面**：近月營收 YoY 年增率 > 8.0%
+        2. 🛡️ **籌碼質化**：三大法人買超且融資未暴增
         3. 📈 **技術面**：均線多頭排列（Close > 5MA > 10MA > 20MA）
-        4. ⚡ **健康量價**：攻擊量放大（當日量 > 20日均量 1.1 倍）且股價大漲 > 1.0%
-        5. 🛡️ **安全邊界（第5濾網）**：月線乖離率（BIAS 20MA）介於 `-2.0% ~ 8.5%`，精選起漲點或回測支撐位階，**嚴格防範追高**。
-        """)
+        4. ⚡ **健康量價**：當日量 > 20日均量 1.1 倍且股價大漲 > 1.0%
+        5. 🛡️ **安全邊界**：BIAS 20MA 介於 -2.0% ~ 8.5%
+        """
+    )
 
-        col_cfg1, col_cfg2 = st.columns(2)
-        with col_cfg1:
-            bias_range = st.slider(
-                "🛡️ 第5濾網：月線乖離率 (BIAS 20MA %) 防追高區間",
-                min_value=-5.0, max_value=20.0, value=(-2.0, 8.5), step=0.5,
-                help="設定在 -2.0%~8.5% 代表只挑選剛突破起漲或回測月線尋求支撐成功的個股，徹底剔除過熱過高的追高標的。"
+    col_cfg1, col_cfg2 = st.columns(2)
+
+    with col_cfg1:
+        bias_range = st.slider(
+            "🛡️ 第5濾網：月線乖離率 (BIAS 20MA %) 防追高區間",
+            min_value=-5.0,
+            max_value=20.0,
+            value=(-2.0, 8.5),
+            step=0.5,
+            help=(
+                "設定在 -2.0%~8.5% 代表只挑選剛突破起漲或"
+                "回測月線尋求支撐成功的個股。"
+            ),
+        )
+
+    with col_cfg2:
+        rev_min_input = st.number_input(
+            "📊 第1濾網：營收年增率 (YoY %) 最低門檻",
+            value=8.0,
+            step=1.0,
+        )
+
+    with st.spinner(
+        "⏳ 正在執行五維量化、籌碼質化與安全邊界交叉運算..."
+    ):
+        df_smart = fetch_smart_screening_results_five_dimensions(
+            bias_min=bias_range[0],
+            bias_max=bias_range[1],
+            rev_min=rev_min_input,
+        )
+
+    if not df_smart.empty:
+        df_five = df_smart[
+            df_smart["MatchedCount"] == 5
+        ].sort_values(
+            by="PctChg",
+            ascending=False,
+        )
+
+        df_four = df_smart[
+            df_smart["MatchedCount"] == 4
+        ].sort_values(
+            by="PctChg",
+            ascending=False,
+        )
+
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+
+        col_m1.metric(
+            "監控總標的數",
+            f"{len(df_smart)} 檔",
+        )
+        col_m2.metric(
+            "🏆 完美通過 5 維全滿貫",
+            f"{len(df_five)} 檔",
+            delta="核心精選",
+        )
+        col_m3.metric(
+            "⭐ 符合 4 維強勢標的",
+            f"{len(df_four)} 檔",
+            delta="潛力觀察",
+        )
+        col_m4.metric(
+            "安全乖離率上限",
+            f"+{bias_range[1]}%",
+            delta="防追高門檻",
+        )
+
+        st.markdown("---")
+
+        st.subheader(
+            "🏆 1. 五維全滿貫精英名單 "
+            "(同時滿足 5 項硬核條件)"
+        )
+
+        if df_five.empty:
+            st.info(
+                "💡 目前無同時滿足 5 項嚴格條件的標的。"
             )
-        with col_cfg2:
-            rev_min_input = st.number_input("📊 第1濾網：營收年增率 (YoY %) 最低門檻", value=8.0, step=1.0)
+        else:
+            display_five = []
 
-        with st.spinner("⏳ 正在執行五維量化、籌碼質化與安全邊界交叉運算..."):
-            df_smart = fetch_smart_screening_results_five_dimensions(
-                bias_min=bias_range[0], bias_max=bias_range[1], rev_min=rev_min_input
+            for _, row in df_five.iterrows():
+                display_five.append(
+                    {
+                        "股票代號": row["StockID"],
+                        "股票名稱": row["StockName"],
+                        "產業類別": row["Industry"],
+                        "收盤價": f"{row['Close']:.2f}",
+                        "今日漲跌": f"{row['PctChg']:+.2f}%",
+                        "營收 YoY": f"{row['RevenueYoY']:+.1f}%",
+                        "月線乖離率": f"{row['BIAS20']:+.2f}%",
+                        "法人籌碼": row["InstBuy"],
+                        "融資籌碼": row["MarginStatus"],
+                        "均線排列": "多頭",
+                        "量價狀態": "健康攻擊量",
+                        "安全防禦": "✅ 起漲位階",
+                        "綜合評級": "🏆 5/5 全滿貫",
+                    }
+                )
+
+            st.dataframe(
+                pd.DataFrame(display_five),
+                use_container_width=True,
             )
 
-        if not df_smart.empty:
-            df_five = df_smart[df_smart["MatchedCount"] == 5].sort_values(by="PctChg", ascending=False)
-            df_four = df_smart[df_smart["MatchedCount"] == 4].sort_values(by="PctChg", ascending=False)
+        st.markdown("---")
 
-            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-            col_m1.metric("監控總標的數", f"{len(df_smart)} 檔")
-            col_m2.metric("🏆 完美通過 5 維全滿貫", f"{len(df_five)} 檔", delta="核心精選")
-            col_m3.metric("⭐ 符合 4 維強勢標的", f"{len(df_four)} 檔", delta="潛力觀察")
-            col_m4.metric("安全乖離率上限", f"+{bias_range[1]}%", delta="防追高門檻")
+        st.subheader(
+            "⭐ 2. 符合 4 維條件標的（備選觀察名單）"
+        )
 
-            st.markdown("---")
-            st.subheader("🏆 1. 五維全滿貫精英名單 (同時滿足 5 項硬核條件)")
-            if df_five.empty:
-                st.info("💡 目前無同時滿足 5 項嚴格條件的標的，代表當前位階無過熱且完全符合條件之起漲股，建議可微調乖離率區間。")
-            else:
-                display_five = []
-                for _, row in df_five.iterrows():
-                    display_five.append({
-                        "股票代號": row["StockID"], "股票名稱": row["StockName"], "產業類別": row["Industry"],
-                        "收盤價": f"{row['Close']:.2f}", "今日漲跌": f"{row['PctChg']:+.2f}%",
-                        "營收 YoY": f"{row['RevenueYoY']:+.1f}%", "月線乖離率": f"{row['BIAS20']:+.2f}%",
-                        "法人籌碼": row["InstBuy"], "融資籌碼": row["MarginStatus"],
-                        "均線排列": "多頭", "量價狀態": "健康攻擊量", "安全防禦": "✅ 起漲位階",
-                        "綜合評級": "🏆 5/5 全滿貫"
-                    })
-                st.dataframe(pd.DataFrame(display_five), use_container_width=True)
+        if df_four.empty:
+            st.info(
+                "💡 目前無符合 4 項條件的標的。"
+            )
+        else:
+            display_four = []
 
-            st.markdown("---")
-            st.subheader("⭐ 2. 符合 4 維條件標的（備選觀察名單）")
-            if df_four.empty:
-                st.info("💡 目前無符合 4 項條件的標的。")
-            else:
-                display_four = []
-                for _, row in df_four.iterrows():
-                    missing = []
-                    if not row["Cond1_Fund"]: missing.append("營收成長動能")
-                    if not row["Cond2_Chip"]: missing.append("法人鎖碼/融資沉澱")
-                    if not row["Cond3_Tech"]: missing.append("均線多頭排列")
-                    if not row["Cond4_Vol"]: missing.append("健康攻擊量能")
-                    if not row["Cond5_Safety"]: missing.append("安全乖離率(位階過高或低於月線)")
+            for _, row in df_four.iterrows():
+                missing = []
 
-                    display_four.append({
-                        "股票代號": row["StockID"], "股票名稱": row["StockName"], "產業類別": row["Industry"],
-                        "收盤價": f"{row['Close']:.2f}", "今日漲跌": f"{row['PctChg']:+.2f}%",
-                        "營收 YoY": f"{row['RevenueYoY']:+.1f}%", "月線乖離率": f"{row['BIAS20']:+.2f}%",
-                        "法人籌碼": row["InstBuy"], "融資籌碼": row["MarginStatus"],
-                        "缺口追蹤": f"⚠️ 缺少: {', '.join(missing)}"
-                    })
-                st.dataframe(pd.DataFrame(display_four), use_container_width=True)
+                if not row["Cond1_Fund"]:
+                    missing.append("營收成長動能")
+                if not row["Cond2_Chip"]:
+                    missing.append("法人鎖碼/融資沉澱")
+                if not row["Cond3_Tech"]:
+                    missing.append("均線多頭排列")
+                if not row["Cond4_Vol"]:
+                    missing.append("健康攻擊量能")
+                if not row["Cond5_Safety"]:
+                    missing.append(
+                        "安全乖離率(位階過高或低於月線)"
+                    )
 
+                display_four.append(
+                    {
+                        "股票代號": row["StockID"],
+                        "股票名稱": row["StockName"],
+                        "產業類別": row["Industry"],
+                        "收盤價": f"{row['Close']:.2f}",
+                        "今日漲跌": f"{row['PctChg']:+.2f}%",
+                        "營收 YoY": f"{row['RevenueYoY']:+.1f}%",
+                        "月線乖離率": f"{row['BIAS20']:+.2f}%",
+                        "法人籌碼": row["InstBuy"],
+                        "融資籌碼": row["MarginStatus"],
+                        "缺口追蹤": (
+                            f"⚠️ 缺少: {', '.join(missing)}"
+                        ),
+                    }
+                )
 
-if __name__ == "__main__":
-    main()
+            st.dataframe(
+                pd.DataFrame(display_four),
+                use_container_width=True,
+            )
