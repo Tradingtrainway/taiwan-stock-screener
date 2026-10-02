@@ -652,9 +652,9 @@ def main():
         df_stock = fetch_stock_data_robust(selected_stock_id)
 
         if df_stock is not None and not df_stock.empty:
-            if df_stock.get("is_mock", [False])[-1]:
-                st.warning("⚠️ 目前顯示為模擬走勢數據（API 連線不穩定時之備援）")
-
+            if "is_mock" in df_stock.columns and df_stock["is_mock"].iloc[-1]:
+    st.warning("⚠️ 目前顯示為模擬走勢數據（API 連線不穩定時之備援）")
+    
             latest = df_stock.iloc[-1]
             prev = df_stock.iloc[-2] if len(df_stock) > 1 else latest
             change = latest["close"] - prev["close"]
