@@ -165,7 +165,7 @@ def fetch_stock_data_robust(stock_id):
     except Exception:
         pass
 
-    # 3. 模擬資料兜底（加上 is_mock 標記避免誤導）
+    # 3. 模擬資料兜底
     date_list = [
         (taipei_now().date() - datetime.timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(90, 0, -1)
@@ -489,7 +489,7 @@ def fetch_official_fallback_records():
 
 
 # ============================================================
-# 補全之全市場處置股抓取入口
+# 全市場處置股抓取入口
 # ============================================================
 def get_disposal_refresh_key():
     now = taipei_now()
@@ -501,9 +501,6 @@ def get_disposal_refresh_key():
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_disposal_stocks(refresh_key):
-    """
-    整合入口：優先抓取 FinMind，失敗時切換至官方預備源。
-    """
     records = []
     try:
         records = fetch_finmind_disposal_records(refresh_key)
@@ -558,8 +555,8 @@ def plot_candlestick(df, stock_id):
             low=df["min"],
             close=df["close"],
             name="K線",
-            increasing_line_color="#FF4136",  # 台股紅漲
-            decreasing_line_color="#2ECC40",  # 台股綠跌
+            increasing_line_color="#FF4136",
+            decreasing_line_color="#2ECC40",
         ),
         row=1,
         col=1,
@@ -653,8 +650,8 @@ def main():
 
         if df_stock is not None and not df_stock.empty:
             if "is_mock" in df_stock.columns and df_stock["is_mock"].iloc[-1]:
-    st.warning("⚠️ 目前顯示為模擬走勢數據（API 連線不穩定時之備援）")
-    
+                st.warning("⚠️ 目前顯示為模擬走勢數據（API 連線不穩定時之備援）")
+
             latest = df_stock.iloc[-1]
             prev = df_stock.iloc[-2] if len(df_stock) > 1 else latest
             change = latest["close"] - prev["close"]
